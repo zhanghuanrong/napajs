@@ -2,6 +2,7 @@
 // Licensed under the MIT license.
 
 #pragma once
+#include <napa/exports.h>
 
 #include <napa/types.h>
 #include <v8.h>
@@ -15,7 +16,7 @@ namespace napa {
 namespace zone {
 
     /// <summary> Context of calling a JavaScript function. </summary>
-    class CallContext {
+    class NAPA_API CallContext {
 
     public:
         /// <summary> Construct spec from external FunctionSpec. </summary>

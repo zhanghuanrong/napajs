@@ -12,7 +12,7 @@ namespace napa {
 namespace zone {
 
     /// <summary> A task for executing pre-loaded javascript functions. </summary>
-    class CallTask : public TerminableTask {
+    class NAPA_API CallTask : public TerminableTask {
     public:
         /// <summary> Constructor. </summary>
         /// <param name="context"> Call context. </param>

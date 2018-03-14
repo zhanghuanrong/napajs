@@ -14,7 +14,7 @@ namespace napa {
 namespace zone {
 
     /// <summary> A task for evaluating javascript source code. </summary>
-    class EvalTask : public Task {
+    class NAPA_API EvalTask : public Task {
     public:
         /// <summary> Constructor. </summary>
         /// <param name="source"> The JS source code to load on the isolate the runs this task. </param>

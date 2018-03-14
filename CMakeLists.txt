@@ -18,6 +18,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # exposing the same symbols from both shared libraries may cause improper behaviors under gcc.
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN)
+set(CMAKE_BUILD_TYPE Debug)
 
 # Build napa shared library.
 add_subdirectory(src)

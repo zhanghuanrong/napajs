@@ -2,13 +2,12 @@
 file(GLOB SOURCE_FILES 
     "addon.cpp"
     "node-zone-delegates.cpp"
-    "${PROJECT_SOURCE_DIR}/src/platform/filesystem.cpp"
-    "${PROJECT_SOURCE_DIR}/src/platform/os.cpp"
-    "${PROJECT_SOURCE_DIR}/src/zone/call-context.cpp"
-    "${PROJECT_SOURCE_DIR}/src/zone/call-task.cpp"
-    "${PROJECT_SOURCE_DIR}/src/zone/eval-task.cpp"
-    "${PROJECT_SOURCE_DIR}/src/zone/terminable-task.cpp"
-    "${PROJECT_SOURCE_DIR}/src/module/core-modules/napa/*.cpp")
+    "${PROJECT_SOURCE_DIR}/src/module/core-modules/napa/*.cpp"
+#    "${PROJECT_SOURCE_DIR}/src/zone/call-context.cpp"
+#    "${PROJECT_SOURCE_DIR}/src/zone/call-task.cpp"
+#    "${PROJECT_SOURCE_DIR}/src/zone/eval-task.cpp"
+#    "${PROJECT_SOURCE_DIR}/src/zone/terminable-task.cpp"
+    )
 
 # The addon name
 set(TARGET_NAME "${PROJECT_NAME}-binding")
