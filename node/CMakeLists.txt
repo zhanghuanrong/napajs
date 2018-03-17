@@ -7,7 +7,6 @@ file(GLOB_RECURSE SOURCE_FILES_SRC
     ${PROJECT_SOURCE_DIR}/src/api/*.cpp
     ${PROJECT_SOURCE_DIR}/src/memory/*.cpp
     ${PROJECT_SOURCE_DIR}/src/module/module.cpp
-    ${PROJECT_SOURCE_DIR}/src/module/loader/*.cpp
     ${PROJECT_SOURCE_DIR}/src/module/core-modules/napa/*.cpp
     ${PROJECT_SOURCE_DIR}/src/platform/*.cpp
     ${PROJECT_SOURCE_DIR}/src/providers/*.cpp
