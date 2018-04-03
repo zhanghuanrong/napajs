@@ -27,6 +27,9 @@ namespace zone {
     class SchedulerImpl {
     public:
 
+        using SequenceType = uint64_t;
+        using SequencedTask = std::pair<SequenceType, std::shared_ptr<Task>>;
+
         /// <summary> Constructor. </summary>
         /// <param name="settings"> A settings object. </param>
         /// <param name="workerSetupCallback"> Callback to setup the isolate after worker created its isolate. </param>
@@ -67,7 +70,15 @@ namespace zone {
         std::vector<WorkerType> _workers;
 
         /// <summary> New tasks that weren't assigned to a specific worker. </summary>
-        std::queue<std::shared_ptr<Task>> _nonScheduledTasks;
+        std::queue<SequencedTask> _nonScheduledTasks;
+
+        /// <summary> New tasks that targets a specific worker. </summary>
+        std::vector<std::queue<SequencedTask>> _perWorkerNonScheduledTasks;
+
+        /// <summary> The sequence number assigned to a task When it is being scheduled.
+        /// It increases monotonically to indicate the order in which tasks are scheduled by the scheduler.
+        /// </summary>
+        SequenceType _currentTaskSequence;
 
         /// <summary> List of idle workers, used when assigning non scheduled tasks. </summary>
         std::list<WorkerId> _idleWorkers;
@@ -81,7 +92,7 @@ namespace zone {
         /// <summary> A flag to signal that scheduler is stopping. </summary>
         std::atomic<bool> _shouldStop;
 
-        /// <summary> Tasks being scheduled but not yet dispatched to worker or put into non-scheduled queue. </summary>
+        /// <summary> Tasks being scheduled but not yet dispatched to worker or put into (per-worker) non-scheduled queue by syncronizer. </summary>
         std::atomic<size_t> _beingScheduled;
     };
 
@@ -92,6 +103,8 @@ namespace zone {
         const settings::ZoneSettings& settings,
         std::function<void(WorkerId, v8::TaskRunner*, v8::TaskRunner*)> workerSetupCallback) :
         _idleWorkersFlags(settings.workers, _idleWorkers.end()),
+        _perWorkerNonScheduledTasks(settings.workers),
+        _currentTaskSequence(0),
         _synchronizer(std::make_unique<SimpleThreadPool>(1)),
         _shouldStop(false),
         _beingScheduled(0) {
@@ -111,7 +124,13 @@ namespace zone {
         NAPA_DEBUG("Scheduler", "Shutting down: Start draining unscheduled tasks...");
 
         // Wait for all tasks to be scheduled.
-        while (_beingScheduled > 0 || !_nonScheduledTasks.empty()) {
+        while (_beingScheduled > 0
+               || !_nonScheduledTasks.empty()
+               || std::find_if_not(_perWorkerNonScheduledTasks.begin(),
+                                   _perWorkerNonScheduledTasks.end(),
+                                   [](auto& pq) { return pq.empty(); }
+                                  ) != _perWorkerNonScheduledTasks.end()
+              ) {
             std::this_thread::yield();
         }
 
@@ -136,7 +155,7 @@ namespace zone {
                 NAPA_DEBUG("Scheduler", "All workers are busy, putting task to non-scheduled queue.");
 
                 // If there is no idle worker, put the task into the non-scheduled queue.
-                _nonScheduledTasks.emplace(std::move(task));
+                _nonScheduledTasks.emplace(_currentTaskSequence++, task);
             } else {
                 // Pop the worker id from the idle workers list.
                 auto workerId = _idleWorkers.front();
@@ -157,17 +176,23 @@ namespace zone {
     void SchedulerImpl<WorkerType>::ScheduleOnWorker(WorkerId workerId, std::shared_ptr<Task> task) {
         NAPA_ASSERT(workerId < _workers.size(), "worker id out of range");
 
+        _beingScheduled++;
         _synchronizer->Execute([workerId, this, task]() {
             // If the worker is idle, change it's status.
             if (_idleWorkersFlags[workerId] != _idleWorkers.end()) {
                 _idleWorkers.erase(_idleWorkersFlags[workerId]);
                 _idleWorkersFlags[workerId] = _idleWorkers.end();
+
+                // Schedule task on worker
+                _workers[workerId].Schedule(std::move(task));
+
+                NAPA_DEBUG("Scheduler", "Explicitly scheduled a task on worker %u.", workerId);
             }
-
-            // Schedule task on worker
-            _workers[workerId].Schedule(std::move(task));
-
-            NAPA_DEBUG("Scheduler", "Explicitly scheduled task on worker %u.", workerId);
+            else {
+                _perWorkerNonScheduledTasks[workerId].emplace(_currentTaskSequence++, task);
+                NAPA_DEBUG("Scheduler", "Given worker %u is busy, explicitly put a task to its non-scheduled queue.", workerId);
+            }
+            _beingScheduled--;
         });
     }
 
@@ -175,18 +200,25 @@ namespace zone {
     void SchedulerImpl<WorkerType>::ScheduleOnAllWorkers(std::shared_ptr<Task> task) {
         NAPA_ASSERT(task, "task is null");
 
+        _beingScheduled++;
         _synchronizer->Execute([this, task]() {
             // Clear all idle workers.
             _idleWorkers.clear();
-            for (auto& flag : _idleWorkersFlags) {
-                flag = _idleWorkers.end();
-            }
-
-            // Schedule the task on all workers.
             for (auto& worker : _workers) {
-                worker.Schedule(task);
+                auto workerId = worker.GetWorkerId();
+                if (_idleWorkersFlags[workerId] != _idleWorkers.end()) {
+                    // If the worker is idle, schedule the task on it. 
+                    _idleWorkersFlags[workerId] = _idleWorkers.end();
+                    worker.Schedule(std::move(task));
+
+                    NAPA_DEBUG("Scheduler", "Scheduled a broadcast task on worker %u.", workerId);
+                } else {
+                    // If the worker is not idle, put the task to its non-scheduled queuqe
+                    _perWorkerNonScheduledTasks[workerId].emplace(_currentTaskSequence++, task);
+                    NAPA_DEBUG("Scheduler", "Given worker %u is busy, put a broadcast task to its non-scheduled queue.", workerId);
+                }
             }
-            NAPA_DEBUG("Scheduler", "Scheduled task on all workers");
+            _beingScheduled--;
         });
     }
 
@@ -199,14 +231,35 @@ namespace zone {
         }
 
         _synchronizer->Execute([this, workerId]() {
-            if (!_nonScheduledTasks.empty()) {
-                // If there is a non scheduled task, schedule it on the idle worker.
-                auto task = _nonScheduledTasks.front();
-                _nonScheduledTasks.pop();
-                _workers[workerId].Schedule(std::move(task));
+            // Pick the earliest task and schedule it on the worker when there are non-scedule tasks for the worker.
+            if (!_nonScheduledTasks.empty() && !_perWorkerNonScheduledTasks[workerId].empty()) {
+                if (_nonScheduledTasks.front().first < _perWorkerNonScheduledTasks[workerId].front().first) {
+                    auto priorityTask = _nonScheduledTasks.front();
+                    _nonScheduledTasks.pop();
+                    _workers[workerId].Schedule(std::move(priorityTask.second));
 
-                NAPA_DEBUG("Scheduler", "Worker %u fetched a task from non-scheduled queue", workerId);
-            } else {
+                    NAPA_DEBUG("Scheduler", "Worker %u fetched a task from the zone non-scheduled queue", workerId);
+                } else {
+                    auto priorityTask = _perWorkerNonScheduledTasks[workerId].front();
+                    _perWorkerNonScheduledTasks[workerId].pop();
+                    _workers[workerId].Schedule(std::move(priorityTask.second));
+
+                    NAPA_DEBUG("Scheduler", "Worker %u fetched a task from its non-scheduled queue", workerId);
+                }
+            } else if (!_nonScheduledTasks.empty()) {
+                auto priorityTask = _nonScheduledTasks.front();
+                _nonScheduledTasks.pop();
+                _workers[workerId].Schedule(std::move(priorityTask.second));
+
+                NAPA_DEBUG("Scheduler", "Worker %u fetched a task from the zone non-scheduled queue", workerId);
+            } else if (!_perWorkerNonScheduledTasks[workerId].empty()) {
+                auto priorityTask = _perWorkerNonScheduledTasks[workerId].front();
+                _perWorkerNonScheduledTasks[workerId].pop();
+                _workers[workerId].Schedule(std::move(priorityTask.second));
+
+                NAPA_DEBUG("Scheduler", "Worker %u fetched a task from its non-scheduled queue", workerId);
+            }
+            else {
                 // Put worker in idle list.
                 if (_idleWorkersFlags[workerId] == _idleWorkers.end()) {
                     auto iter = _idleWorkers.emplace(_idleWorkers.end(), workerId);
