@@ -153,7 +153,9 @@ namespace {
 
     std::unordered_map<std::string, std::weak_ptr<NapaZone>> _activeZones; // ID to zone instance, remove when GC
     std::unordered_set<std::shared_ptr<ZoneData>> _allZones; // remove when GC
-}
+
+    uv_async_t _activePlaceHolder;
+} // namespace
 
 class napa::zone::NapaZone::Impl : public NapaZoneImpl {};
 
@@ -180,12 +182,27 @@ std::shared_ptr<NapaZone> NapaZone::Create(const settings::ZoneSettings& setting
     auto zone = std::make_shared<MakeSharedEnabler>(settings);
     _activeZones[settings.id] = zone;
 
+    // Create the corresponding ZoneData instance 
     auto zoneData = std::make_shared<ZoneData>();
     zoneData->_zone = zone;
     zoneData->_persistent = (settings.recycle == settings::ZoneSettings::RecycleMode::Manual) ? zone : nullptr;
     zoneData->_recyclePlaceHolder = std::make_shared<RecycledZone>(zone->_impl);
+
+    // Register the zone data
+    if (_allZones.empty()) {
+        auto loop = reinterpret_cast<uv_loop_t*>(WorkerContext::Get(WorkerContextItem::EVENT_LOOP));
+        NAPA_ASSERT(loop == uv_default_loop(),
+            "The first napa zone creation should always happen in node main thread.");
+        auto errorCode = uv_async_init(loop, &_activePlaceHolder, [](uv_async_t* task) {
+            uv_close(reinterpret_cast<uv_handle_t*>(task), nullptr);
+            NAPA_DEBUG("Zone", "Unregistered active place holder.");
+        });
+        NAPA_ASSERT(0 == errorCode, "Failed to register active place holder");
+        NAPA_DEBUG("Zone", "Registered active place holder.");
+    }
     auto result = _allZones.insert(zoneData);
     NAPA_ASSERT(result.second, "Failed to insert zone '%s' into cache.", settings.id.c_str());
+
     zone->_impl->_zoneData = zoneData;
 
     NAPA_DEBUG("Zone", "Napa zone \"%s\" created.", settings.id.c_str());
@@ -261,7 +278,14 @@ NapaZone::NapaZone(const settings::ZoneSettings& settings) :
 
             impl->_events.OnTerminated();
             impl->_zoneData->_recyclePlaceHolder.reset();
-            _allZones.erase(impl->_zoneData);
+
+            {
+                std::lock_guard<std::mutex> lock(_mutex);
+                _allZones.erase(impl->_zoneData);
+                if (_allZones.empty()) {
+                    uv_async_send(&_activePlaceHolder);
+                }            
+            }
         });
 }
 
