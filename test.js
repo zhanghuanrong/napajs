@@ -28,3 +28,6 @@ nodezone.execute((sharable, sharedArrayBuffer) => {
 }, [napa.memory.crtAllocator, sab]).then((r) => {
     console.log('...3...zone execute callback......', r.value, global.__zone_id, global.__worker_id);
 });
+
+napazone.recycle();
+

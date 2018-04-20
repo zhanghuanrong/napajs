@@ -32,7 +32,7 @@ namespace zone {
                const settings::ZoneSettings &settings,
                std::function<void(WorkerId, uv_loop_t*)> setupCallback,
                std::function<void(WorkerId)> idleNotificationCallback,
-               std::function<void(WorkerId)> exitCallback);
+               std::function<void(WorkerId, int)> exitCallback);
 
         /// <summary> Destructor. </summary>
         /// <note> This will block until all pending tasks are completed. </note>

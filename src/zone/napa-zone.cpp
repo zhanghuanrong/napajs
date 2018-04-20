@@ -12,6 +12,7 @@
 #include <zone/call-context.h>
 #include <zone/task-decorators.h>
 #include <zone/worker-context.h>
+#include <zone/event-emitter.h>
 
 #include <napa/log.h>
 
@@ -79,25 +80,13 @@ namespace {
     struct ZoneData;
 
 
-    struct NapaZoneEventEmitter {
-        // TBD: NapaZoneEventEmitter: the following methods should be implemented.
-        // They should run very fast (no any blocking operation)
-        void OnCreated() {}
-        void OnRecycling() {}
-        void OnRecycled() {}
-        void OnTerminated() {}
-
-        ~NapaZoneEventEmitter() {
-            NAPA_DEBUG("Zone", "Destructor NapaZoneEventEmitter");
-        }
-    };
-
+    // Emitter should run very fast (no any blocking operation) when emit event.
     struct NapaZoneImpl { // address of 'this' will be stored to TLS (WorkerContextItem::ZONE)
         Zone::State _state;
         settings::ZoneSettings _settings; // address of '_settings.id' will be stored to TLS (WorkerContextItem::ZONE_ID)
         std::unique_ptr<Scheduler> _scheduler;
         std::shared_ptr<ZoneData> _zoneData;
-        NapaZoneEventEmitter _events;
+        EventEmitter _events;
 
         ~NapaZoneImpl() {
             NAPA_DEBUG("Zone", "Destructor NapaZoneImpl");
@@ -272,11 +261,11 @@ NapaZone::NapaZone(const settings::ZoneSettings& settings) :
             // Set event loop into TLS. </summary>
             WorkerContext::Set(WorkerContextItem::EVENT_LOOP, reinterpret_cast<void*>(event_loop));
         },
-        [impl = _impl]() {
+        [impl = _impl](int exit_code) {
             // destruct the scheduler, which also destruct the workers.
             impl->_scheduler.reset();
 
-            impl->_events.OnTerminated();
+            impl->_events.Emit("Terminated");
             impl->_zoneData->_recyclePlaceHolder.reset();
 
             {
@@ -368,12 +357,12 @@ void NapaZone::Recycle() {
             exitSpec.function = STD_STRING_TO_NAPA_STRING_REF(WORKER_RECYCLE_FUNCTION);
             Broadcast(exitSpec, [](Result){});
 
-            _impl->_events.OnRecycling();
             _recycling = true;
-
             if (_impl->_settings.recycle == settings::ZoneSettings::RecycleMode::Manual) {
                 _impl->_zoneData->_persistent.reset();
             }
+
+            _impl->_events.Emit("Recycling");
         }
     }
 }
@@ -381,5 +370,5 @@ void NapaZone::Recycle() {
 NapaZone::~NapaZone() {
     // _activeZones[this_zone_id] is expired by now
     Recycle();
-    _impl->_events.OnRecycled();
+    _impl->_events.Emit("Recycled");
 }

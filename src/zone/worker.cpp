@@ -69,7 +69,7 @@ struct Worker::Impl {
     /// <summary> A callback function that is called when worker becomes idle. </summary>
     std::function<void(WorkerId)> idleNotificationCallback;
 
-    std::function<void(WorkerId)> exitCallback;
+    std::function<void(WorkerId, int)> exitCallback;
 
     /// <summary> The zone settings for the current worker. </summary>
     settings::ZoneSettings settings;
@@ -79,7 +79,7 @@ Worker::Worker(WorkerId id,
                const settings::ZoneSettings& settings,
                std::function<void(WorkerId, uv_loop_t*)> setupCallback,
                std::function<void(WorkerId)> idleNotificationCallback,
-               std::function<void(WorkerId)> exitCallback)
+               std::function<void(WorkerId, int)> exitCallback)
     : _impl(std::make_unique<Worker::Impl>()) {
     NAPA_ASSERT(uv_loop_init(&_impl->loop) == 0, "Worker (id=%u) failed to initialize its loop.", id);
 
@@ -114,9 +114,6 @@ void Worker::Start() {
     int result = uv_thread_create(&_impl->tId, [](void* arg){
         Worker* worker = static_cast<Worker*>(arg);
         worker->WorkerThreadFunc(worker->_impl->settings);
-
-        auto exitCallback = std::move(worker->_impl->exitCallback);
-        exitCallback(worker->_impl->id);
     }, static_cast<void*>(this));
     NAPA_ASSERT(result == 0, "Worker (id=%u) failed to start.", _impl->id);
 }
@@ -184,16 +181,17 @@ void Worker::WorkerThreadFunc(const settings::ZoneSettings& settings) {
     auto workId = std::to_string(_impl->id);
     worker_argv[3] = workId.c_str();
 
-    node::Start(static_cast<void*>(&_impl->loop),
-                4, worker_argv, main_exec_argc, main_exec_argv, false,
-                [this](v8::TaskRunner* foregroundTaskRunner, v8::TaskRunner* backgroundTaskRunner){
-                    NAPA_ASSERT(foregroundTaskRunner != nullptr, "Foreground task runner should not be null");
-                    NAPA_ASSERT(backgroundTaskRunner != nullptr, "Background task runner should not be null");
-                    // Setup worker after isolate creation.
-                    _impl->foregroundTaskRunner = foregroundTaskRunner;
-                    _impl->backgroundTaskRunner = backgroundTaskRunner;
-                    _impl->setupCallback(_impl->id, &_impl->loop);
-                    _impl->idleNotificationCallback(_impl->id);
-                });
-
+    int exit_code = node::Start(static_cast<void*>(&_impl->loop),
+        4, worker_argv, main_exec_argc, main_exec_argv, false,
+        [this](v8::TaskRunner* foregroundTaskRunner, v8::TaskRunner* backgroundTaskRunner){
+            NAPA_ASSERT(foregroundTaskRunner != nullptr, "Foreground task runner should not be null");
+            NAPA_ASSERT(backgroundTaskRunner != nullptr, "Background task runner should not be null");
+            // Setup worker after isolate creation.
+            _impl->foregroundTaskRunner = foregroundTaskRunner;
+            _impl->backgroundTaskRunner = backgroundTaskRunner;
+            _impl->setupCallback(_impl->id, &_impl->loop);
+            _impl->idleNotificationCallback(_impl->id);
+        });
+    auto exitCallback = std::move(_impl->exitCallback);
+    exitCallback(_impl->id, exit_code);
 }

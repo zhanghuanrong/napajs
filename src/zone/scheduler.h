@@ -36,7 +36,7 @@ namespace zone {
         SchedulerImpl(
             const settings::ZoneSettings& settings,
             std::function<void(WorkerId, uv_loop_t*)> workerSetupCallback,
-            std::function<void()> exitCallback);
+            std::function<void(int)> zoneExitCallback);
 
         /// <summary> Destructor. Waits for all tasks to finish. </summary>
         ~SchedulerImpl();
@@ -69,6 +69,8 @@ namespace zone {
 
         /// <summary> The workers that are used for running the tasks. </summary>
         std::vector<WorkerType> _workers;
+
+        std::vector<int> _worker_exit_codes;
 
         /// <summary> New tasks that weren't assigned to a specific worker. </summary>
         std::queue<SequencedTask> _nonScheduledTasks;
@@ -104,9 +106,10 @@ namespace zone {
     SchedulerImpl<WorkerType>::SchedulerImpl(
         const settings::ZoneSettings& settings,
         std::function<void(WorkerId, uv_loop_t*)> workerSetupCallback,
-        std::function<void()> exitCallback) :
+        std::function<void(int)> zoneExitCallback) :
         _idleWorkersFlags(settings.workers, _idleWorkers.end()),
         _perWorkerNonScheduledTasks(settings.workers),
+        _worker_exit_codes(settings.workers, 0),
         _currentTaskSequence(0),
         _beingScheduled(0) {
 
@@ -114,24 +117,27 @@ namespace zone {
         std::call_once(_synchronizerCreateOnceFlag, [](){ _synchronizer = std::make_unique<SimpleThreadPool>(1); });
 
         auto counter = std::make_shared<std::atomic<uint32_t>>(settings.workers);
-        auto exitOnce = [exitCallback = std::move(exitCallback), counter]() {
+        auto workerExitCallback = [zoneExitCallback = std::move(zoneExitCallback), counter, this](WorkerId workerId, int exit_code) {
+            _worker_exit_codes[workerId] = exit_code;
             if (--(*counter) == 0) {
                 // use synchronizer to destruct scheduler and workers
-                _synchronizer->Execute([](std::function<void()> exitCallback) {
-                    exitCallback();
-                }, std::move(exitCallback));
+                _synchronizer->Execute([this](std::function<void(int)> zoneExitCallback) {
+                    auto iter = std::find_if(_worker_exit_codes.begin(), _worker_exit_codes.end(), [](const int& v) -> bool { return v != 0; });
+                    int zoneExitCode = (iter == _worker_exit_codes.end()) ? 0 : *iter;
+                    zoneExitCallback(zoneExitCode);
+                }, std::move(zoneExitCallback));
             }
         };
         _workers.reserve(settings.workers);
 
         for (WorkerId i = 0; i < settings.workers; i++) {
-            _workers.emplace_back(i, settings, workerSetupCallback, [this](WorkerId workerId) {
-                // idle callback
-                IdleWorkerNotificationCallback(workerId);
-            }, [exitOnce](WorkerId workerId) {
-                // exit callback
-                exitOnce();
-            });
+            _workers.emplace_back(
+                i, settings, workerSetupCallback, 
+                [this](WorkerId workerId) {
+                        // idle callback
+                        IdleWorkerNotificationCallback(workerId);
+                    }, 
+                workerExitCallback);
             _workers[i].Start();
         }
     }

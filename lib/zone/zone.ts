@@ -167,5 +167,7 @@ export interface Zone {
     ///     completed, all its workers will exit and terminate their threads.
     /// </remarks>
     recycle() : void;
+
+    on(event: string, args?: any[]) : void;
 }
 
