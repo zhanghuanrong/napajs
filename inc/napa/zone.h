@@ -7,6 +7,7 @@
 
 #include <functional>
 #include <future>
+#include <tuple>
 
 namespace napa {
 
@@ -153,6 +154,32 @@ namespace napa {
         /// <summary> Recycle the zone </summary>
         void Recycle() {
             napa_zone_recycle(_handle);
+        }
+
+
+        void On(const std::string& event, v8::Local<v8::Function> jsFunc) {
+            _handle->zone->On(event, jsFunc);
+            auto isolate = v8::Isolate::GetCurrent();
+            v8::Global<v8::Function> cbFunc(isolate, jsFunc);
+
+            auto cbContext = new std::tuple<uv_async_t, void*, std::function<void(uv_async_t*)>>{
+                uv_async_t{},
+                nullptr, // to be set when event is emitted
+                [event, cb = std::move(cbFunc)](uv_async_t* h) {
+
+                }
+            };
+            uv_loop_t* loop = reinterpret_cast<uv_loop_t*>(zone::WorkerContext::Get(zone::WorkerContextItem::EVENT_LOOP));
+            uv_async_init(loop, &std::get<0>(*cbContext), [](uv_async_t* e) {
+                std::tuple<uv_async_t, void*, std::function<void(uv_async_t*)>>* e
+                });
+            std::get<0>(*cbContext).data = cbContext;
+
+            auto emitter = _handle->zone->GetEmitter();
+            emitter.On(event, [cbContext](void* params) {
+                uv_async_t&e = std::get<0>(*cbContext);
+                uv_async_send(e);
+            });
         }
 
         /// <summary> Retrieves a new zone proxy for the zone id, throws if zone is not found. </summary>

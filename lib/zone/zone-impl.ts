@@ -5,6 +5,7 @@ import * as path from 'path';
 import * as zone from './zone';
 import * as transport from '../transport';
 import * as v8 from '../v8';
+import { AssertionError } from 'assert';
 
 interface FunctionSpec {
     module: string;
@@ -184,4 +185,12 @@ export class ZoneImpl implements zone.Zone {
             transportContext: transportContext
         };
     }
+
+    public on(event: string, func: any) {
+        if (typeof func !== 'function') {
+            throw new Error('function is needed for zone.on()');
+        }
+        this._nativeZone.on(event, func);
+    }
+   
 }

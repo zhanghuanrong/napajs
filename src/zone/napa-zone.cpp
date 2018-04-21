@@ -367,6 +367,60 @@ void NapaZone::Recycle() {
     }
 }
 
+struct ZoneEmitContext {
+    uv_async_t _h;
+    
+    // std::tuple where size and types are interpreted and understand by the cb function
+    void* _cbParameters; 
+
+    std::function<void (uv_async_t*)> _cb;
+
+    ZoneEmitContext(std::function<void (uv_async_t*)>&& cb) 
+        : _h(), _cbParameters(nullptr), _cb(std::move(cb)) {
+    }
+
+    std::vector<v8::Local<v8::Value>> getCallingParameters(const std::string& event) {
+        std::vector<v8::Local<v8::Value>> parameters;
+        if (_cbParameters == nullptr) return parameters;
+        if (event.compare("Terminated") == 0) {
+            parameters.reserve(1);
+            auto t = dynamic_cast<std::tuple<int>*>(_cbParameters);
+            
+        }
+    }
+};
+
+
+void On(const std::string& event, v8::Local<v8::Function> jsFunc) {
+    auto isolate = v8::Isolate::GetCurrent();
+    v8::Global<v8::Function> persistFunc(isolate, jsFunc);
+
+    ZoneEmitContext* emitContext = new ZoneEmitContext(
+        [event, persistFunc = std::move(persistFunc)](uv_async_t* h) {
+            auto isolate = v8::Isolate::GetCurrent();
+            auto jsCallback = v8::Local<v8::Function>::New(isolate, persistFunc);
+
+            std::vector<v8::Local<v8::Value>> parameters;
+
+        });
+    uv_loop_t* loop = reinterpret_cast<uv_loop_t*>(zone::WorkerContext::Get(zone::WorkerContextItem::EVENT_LOOP));
+    uv_async_init(loop, &emitContext->_h, [](uv_async_t* h) {
+            auto emitContext = h->data;
+        });
+    emitContext->_h.data = emitContext;
+
+    auto emitter = _handle->zone->GetEmitter();
+    emitter.On(event, [cbContext](void* params) {
+        uv_async_t&e = std::get<0>(*cbContext);
+        uv_async_send(e);
+    });
+
+    EventEmitter& emitter = _impl->events;
+            
+
+}
+
+
 NapaZone::~NapaZone() {
     // _activeZones[this_zone_id] is expired by now
     Recycle();

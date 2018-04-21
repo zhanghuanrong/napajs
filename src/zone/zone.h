@@ -4,6 +4,9 @@
 #pragma once
 
 #include <napa/types.h>
+#include <v8.h>
+
+class EventEmitter;
 
 namespace napa {
 namespace zone {
@@ -37,6 +40,8 @@ namespace zone {
 
         /// <summary> Recycle the zone so it will no longer be able to schedule new tasks. </summary>
         virtual void Recycle() = 0;
+
+        virtual void On(const std::string& event, v8::Local<v8::Function> jsFunc) = 0;
 
         /// <summary> Virtual destructor. </summary>
         virtual ~Zone() {}

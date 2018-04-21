@@ -168,6 +168,6 @@ export interface Zone {
     /// </remarks>
     recycle() : void;
 
-    on(event: string, args?: any[]) : void;
+    on(event: string, func: (...args: any[]) => void) : void;
 }
 

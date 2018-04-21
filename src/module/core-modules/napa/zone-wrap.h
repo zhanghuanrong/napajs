@@ -42,6 +42,7 @@ namespace module {
         static void Execute(const v8::FunctionCallbackInfo<v8::Value>& args);
         static void ExecuteSync(const v8::FunctionCallbackInfo<v8::Value>& args);
         static void Recycle(const v8::FunctionCallbackInfo<v8::Value>& args);
+        static void On(const v8::FunctionCallbackInfo<v8::Value>& args);
 
         /// <summary> Friend default constructor callback. </summary>
         template <typename WrapType>

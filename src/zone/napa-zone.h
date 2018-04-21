@@ -40,6 +40,8 @@ namespace zone {
         /// <see cref="Zone::Execute" />
         virtual void Execute(const FunctionSpec& spec, ExecuteCallback callback) override;
 
+        virtual void On(const std::string& event, v8::Local<v8::Function> jsFunc) override;
+
         /// <see cref="Zone::Recycle" />
         virtual void Recycle() override;
 

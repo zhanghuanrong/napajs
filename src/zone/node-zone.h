@@ -49,6 +49,8 @@ namespace zone {
         /// <see cref="Zone::Recycle" />
         virtual void Recycle() override {}
 
+        virtual void On(const std::string& event, v8::Local<v8::Function> jsFunc) override { }
+
     private:
         /// <summary> Constructor. </summary>
         NodeZone(BroadcastDelegate broadcast, ExecuteDelegate execute);

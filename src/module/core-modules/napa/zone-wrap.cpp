@@ -277,3 +277,18 @@ void ZoneWrap::Recycle(const v8::FunctionCallbackInfo<v8::Value>& args) {
 
     wrap->_zoneProxy->Recycle();
 }
+
+
+void ZoneWrap::On(const v8::FunctionCallbackInfo<v8::Value>& args) {
+    auto isolate = v8::Isolate::GetCurrent();
+    auto wrap = ObjectWrap::Unwrap<ZoneWrap>(args.Holder());
+
+    CHECK_ARG(isolate, args[0]->IsString(), "first argument to zone.On must be the string");
+    CHECK_ARG(isolate, args[1]->IsFunction(), "second argument to zone.On must be function");
+    
+    v8::String::Utf8Value event(args[0]->ToString());
+    std::string eventName(*event, event.length());
+    v8::Local<v8::Function> jsFunction = v8::Local<v8::Function>::Cast(args[1]);
+
+    wrap->_zoneProxy->On(eventName, jsFunction);
+}
