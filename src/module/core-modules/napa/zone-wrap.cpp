@@ -38,6 +38,7 @@ void ZoneWrap::Init() {
     NODE_SET_PROTOTYPE_METHOD(functionTemplate, "execute", Execute);
     NODE_SET_PROTOTYPE_METHOD(functionTemplate, "executeSync", ExecuteSync);
     NODE_SET_PROTOTYPE_METHOD(functionTemplate, "recycle", Recycle);
+    NODE_SET_PROTOTYPE_METHOD(functionTemplate, "on", On);
 
     // Set persistent constructor into V8.
     NAPA_SET_PERSISTENT_CONSTRUCTOR(exportName, functionTemplate->GetFunction());

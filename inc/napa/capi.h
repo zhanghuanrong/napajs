@@ -6,6 +6,8 @@
 #include "napa/exports.h"
 #include "napa/types.h"
 
+#include <v8.h>
+
 /// <summary> Creates a napa zone. </summary>
 /// <param name="id"> A unique id for the zone. </param>
 /// <remarks>
@@ -91,6 +93,11 @@ EXTERN_C NAPA_API void napa_zone_execute(
 ///     user calls napa_zone_recycle() manually.
 /// </remarks>
 EXTERN_C NAPA_API void napa_zone_recycle(napa_zone_handle handle);
+
+
+// <summary>
+EXTERN_C NAPA_API void napa_zone_on(napa_zone_handle handle, const char* eventName, v8::Local<v8::Function> jsFunc);
+
 
 /// <summary>
 ///     Global napa initialization. Invokes initialization steps that are cross zones.

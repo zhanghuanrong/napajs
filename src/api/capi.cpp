@@ -199,6 +199,14 @@ void napa_zone_recycle(napa_zone_handle handle) {
     handle->zone->Recycle();
 }
 
+void napa_zone_on(napa_zone_handle handle, const char* eventName, v8::Local<v8::Function> jsFunc) {
+    NAPA_ASSERT(_initialized, "Napa platform wasn't initialized");
+    NAPA_ASSERT(handle, "Zone handle is null");
+    NAPA_ASSERT(handle->zone, "Zone handle wasn't initialized");
+
+    handle->zone->On(std::string{eventName}, jsFunc);
+}
+
 static napa_result_code napa_initialize_common() {
     if (!napa::providers::Initialize(_platformSettings)) {
         return NAPA_RESULT_PROVIDERS_INIT_ERROR;

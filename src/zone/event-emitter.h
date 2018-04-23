@@ -9,38 +9,35 @@
 #include <algorithm>
 #include <string>
 
-template <typename T>
-class Emitter
+class EventEmitter
 {
   public:
-    typedef T Event;
+    typedef std::string Event;
 
-    Emitter() {}
+    EventEmitter() {}
 
-    ~Emitter() {}
-
-    template <typename... Args>
-    void Emit(const Event event, Args... args);
+    ~EventEmitter() {}
 
     template <typename... Args>
-    unsigned int On(const Event event, std::function<void(Args...)> cb);
+    void Emit(const Event& event, Args... args);
 
-    unsigned int On(const Event event, std::function<void()> cb);
+    template <typename... Args>
+    int On(const Event& event, std::function<void(Args...)> cb);
 
-    void RemoveListener(unsigned int listener_id);
+    //unsigned int On(const Event event, std::function<void()> cb);
 
-    void RemoveListenersOn(const Event event);
+    void RemoveListener(int listener_id);
+
+    void RemoveListenersOn(const Event& event);
 
   private:
     struct ListenerBase
     {
-        ListenerBase() = default;
-
-        ListenerBase(unsigned int id) : _id(id) {}
+        ListenerBase(int id = 0) : _id(id) {}
 
         virtual ~ListenerBase() {}
 
-        unsigned int _id;
+        int _id;
     };
 
     template <typename... Args>
@@ -48,25 +45,31 @@ class Emitter
     {
         Listener() = default;
 
-        Listener(unsigned int id, std::function<void(Args...)> cb)
+        Listener(int id, std::function<void (Args...)> cb)
             : ListenerBase(id), _cb(cb) {}
 
         std::function<void(Args...)> _cb;
     };
 
     std::mutex _mutex;
-    unsigned int _last_listener;
+    int _last_listener;
     std::multimap<Event, std::shared_ptr<ListenerBase>> _listeners;
 
-    Emitter(const Emitter &) = delete;
-    const Emitter &operator=(const Emitter &) = delete;
+    EventEmitter(const EventEmitter &) = delete;
+    const EventEmitter &operator=(const EventEmitter &) = delete;
 };
 
-typedef Emitter<std::string> EventEmitter;
+// unsigned int EventEmitter::On(const EventEmitter::Event event, std::function<void()> cb)
+// {
+//     std::lock_guard<std::mutex> lock(_mutex);
+//     unsigned int listener_id = ++_last_listener;
+//     _listeners.insert(std::make_pair(event, std::make_shared<Listener<>>(listener_id, cb)));
+//     return listener_id;
+// }
 
-template <typename T>
+
 template <typename... Args>
-unsigned int Emitter<T>::On(const Emitter<T>::Event event, std::function<void(Args...)> cb)
+int EventEmitter::On(const EventEmitter::Event& event, std::function<void(Args...)> cb)
 {
     std::lock_guard<std::mutex> lock(_mutex);
     unsigned int listener_id = ++_last_listener;
@@ -75,18 +78,8 @@ unsigned int Emitter<T>::On(const Emitter<T>::Event event, std::function<void(Ar
 }
 
 
-template <typename T>
-unsigned int Emitter<T>::On(const Emitter<T>::Event event, std::function<void()> cb)
-{
-    std::lock_guard<std::mutex> lock(_mutex);
-    unsigned int listener_id = ++_last_listener;
-    _listeners.insert(std::make_pair(event, std::make_shared<Listener<>>(listener_id, cb)));
-    return listener_id;
-}
-
-template <typename T>
 template <typename... Args>
-void Emitter<T>::Emit(const Emitter<T>::Event event, Args... args)
+void EventEmitter::Emit(const EventEmitter::Event& event, Args... args)
 {
     std::list<std::shared_ptr<Listener<Args...>>> handlers;
 
@@ -113,30 +106,6 @@ void Emitter<T>::Emit(const Emitter<T>::Event event, Args... args)
     {
         h->_cb(args...);
     }
-}
-
-
-template <typename T>
-void Emitter<T>::RemoveListener(unsigned int listener_id)
-{
-    std::lock_guard<std::mutex> lock(_mutex);
-    auto i = std::find_if(_listeners.begin(), _listeners.end(), 
-        [listener_id](const std::pair<Event, std::shared_ptr<ListenerBase>>& p) {
-            return p.second->id == listener_id;
-        }
-    );
-    if (i != _listeners.end())
-    {
-        _listeners.erase(i);
-    }
-}
-
-
-template <typename T>
-void Emitter<T>::RemoveListenersOn(const Event event)
-{
-    std::lock_guard<std::mutex> lock(_mutex);
-    _listeners.erase(event);
 }
 
 

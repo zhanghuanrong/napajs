@@ -17,6 +17,7 @@
 #include <napa/log.h>
 
 #include <future>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -265,7 +266,7 @@ NapaZone::NapaZone(const settings::ZoneSettings& settings) :
             // destruct the scheduler, which also destruct the workers.
             impl->_scheduler.reset();
 
-            impl->_events.Emit("Terminated");
+            impl->_events.Emit("Terminated", exit_code);
             impl->_zoneData->_recyclePlaceHolder.reset();
 
             {
@@ -370,54 +371,87 @@ void NapaZone::Recycle() {
 struct ZoneEmitContext {
     uv_async_t _h;
     
-    // std::tuple where size and types are interpreted and understand by the cb function
-    void* _cbParameters; 
-
     std::function<void (uv_async_t*)> _cb;
 
-    ZoneEmitContext(std::function<void (uv_async_t*)>&& cb) 
-        : _h(), _cbParameters(nullptr), _cb(std::move(cb)) {
+    // std::tuple where size and types are interpreted and understand by the _cb function
+    void* _args; 
+
+    int _listener_id;
+
+    ZoneEmitContext(std::function<void (uv_async_t*)> cb)
+        : _h(), _args(nullptr), _cb(cb), _listener_id(0) {
     }
 
-    std::vector<v8::Local<v8::Value>> getCallingParameters(const std::string& event) {
+    std::vector<v8::Local<v8::Value>> 
+    getCallingParameters(const std::string& event, v8::Isolate* isolate) {
         std::vector<v8::Local<v8::Value>> parameters;
-        if (_cbParameters == nullptr) return parameters;
-        if (event.compare("Terminated") == 0) {
-            parameters.reserve(1);
-            auto t = dynamic_cast<std::tuple<int>*>(_cbParameters);
-            
+        if (_args != nullptr) {
+            if (event.compare("Terminated") == 0) {
+                parameters.reserve(1);
+                std::tuple<int>* t = reinterpret_cast<std::tuple<int> *>(_args);
+                int exit_code = std::get<0>(*t);
+                v8::Local<v8::Integer> lv_exit_code = v8::Integer::New(isolate, exit_code);
+                parameters.push_back(lv_exit_code);
+            }
         }
+        return parameters;
     }
 };
 
-
-void On(const std::string& event, v8::Local<v8::Function> jsFunc) {
+// When call some zone's On() in specific worker (highly possible in node's main loop), 
+//     *) new ZoneEmitContext will be created, where
+//          +) uv_async_t handle will be created and added to current worker's loop, 
+//             it will be activated when the event is emitted from the zone.
+//          *) wrapper call back logic will be created to call the jsFunc when
+//             above uv_async_t handle is activated and executed later in current worker's 
+//             loop. at that time, real call back parameter is known and should be
+//             set in the ZoneEmitContext's _cbParamters.
+void NapaZone::On(const std::string& event, v8::Local<v8::Function> jsFunc) {
     auto isolate = v8::Isolate::GetCurrent();
-    v8::Global<v8::Function> persistFunc(isolate, jsFunc);
+    auto persistFunc = std::make_shared<v8::Persistent<v8::Function>>(isolate, jsFunc);
 
-    ZoneEmitContext* emitContext = new ZoneEmitContext(
-        [event, persistFunc = std::move(persistFunc)](uv_async_t* h) {
+    // TODO: save context here to the onEvent capture
+    auto onEvent = [event, persistFunc](uv_async_t* h) {
+        ZoneEmitContext* emitContext = reinterpret_cast<ZoneEmitContext*>(h->data);
+
+        {
             auto isolate = v8::Isolate::GetCurrent();
-            auto jsCallback = v8::Local<v8::Function>::New(isolate, persistFunc);
+            v8::HandleScope handle_scope(isolate);
+            v8::Local<v8::Context> local_context = v8::Context::New(isolate);
+            auto jsCallback = v8::Local<v8::Function>::New(isolate, *persistFunc);
+            std::vector<v8::Local<v8::Value>> parameters = emitContext->getCallingParameters(event, isolate);
+            jsCallback->Call(isolate->GetCurrentContext()->Global(), parameters.size(), parameters.data());
+        }
+        
+        persistFunc->Reset();
+    };
 
-            std::vector<v8::Local<v8::Value>> parameters;
-
-        });
+    ZoneEmitContext* emitContext = new ZoneEmitContext(onEvent);
+    
     uv_loop_t* loop = reinterpret_cast<uv_loop_t*>(zone::WorkerContext::Get(zone::WorkerContextItem::EVENT_LOOP));
     uv_async_init(loop, &emitContext->_h, [](uv_async_t* h) {
-            auto emitContext = h->data;
+            auto emitContext = reinterpret_cast<ZoneEmitContext*>(h->data);
+            emitContext->_cb(h);
+            delete emitContext;
         });
     emitContext->_h.data = emitContext;
 
-    auto emitter = _handle->zone->GetEmitter();
-    emitter.On(event, [cbContext](void* params) {
-        uv_async_t&e = std::get<0>(*cbContext);
-        uv_async_send(e);
-    });
-
-    EventEmitter& emitter = _impl->events;
-            
-
+    int listener_id = 0;
+    if (event.compare("Terminated") == 0) {
+        // call back parameter is (int exit_code)
+        std::function<void(int)> cb = [emitContext](int exit_code) -> void {
+            emitContext->_args = static_cast<void*>(new std::tuple<int>{exit_code});
+            uv_async_send(&(emitContext->_h));
+        };
+        listener_id = _impl->_events.On(event, cb);
+    }
+    else { //default, no call back parameter
+        std::function<void()> cb = [emitContext]() {
+            uv_async_send(&(emitContext->_h));
+        };
+        listener_id = _impl->_events.On(event, cb);
+    }
+    emitContext->_listener_id = listener_id;
 }
 
 
