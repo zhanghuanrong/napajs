@@ -12,7 +12,8 @@
 #include <zone/call-context.h>
 #include <zone/task-decorators.h>
 #include <zone/worker-context.h>
-#include <zone/event-emitter.h>
+
+#include "event-emitter.h"
 
 #include <napa/log.h>
 
@@ -354,6 +355,7 @@ void NapaZone::Execute(const FunctionSpec& spec, ExecuteCallback callback) {
     _impl->_scheduler->Schedule(std::move(task));
 }
 
+
 void NapaZone::Recycle() {
     if (!_recycling) {
         std::lock_guard<std::mutex> lock(_mutex);
@@ -375,98 +377,13 @@ void NapaZone::Recycle() {
 }
 
 
-using v8::Local;
-using v8::Persistent;
-using v8::Value;
-using v8::Isolate;
-using v8::Context;
-using v8::Function;
-
-struct ZoneEmitContext {
-    uv_async_t _h;
-    
-    // This callback will be executed after event is triggered, and notified to the caller's isolation.
-    std::function<void (ZoneEmitContext*)> _cb;
-
-    // Real args when event is emitted.
-    std::vector<any> _args;
-
-    ZoneEmitContext(std::function<void (ZoneEmitContext*)> cb)
-        : _h(), _cb(cb), _args() {
-    }
-
-    std::vector<Local<Value>> 
-    getCallingParameters(Isolate* isolate) {
-        std::vector<Local<Value>> parameters;
-        parameters.reserve(_args.size());
-        for (size_t i = 0; i < _args.size(); ++i) {
-            any& v = _args[i];
-            if (v.type() == typeid(int)) {
-                parameters.emplace_back(v8::Integer::New(isolate, any_cast<int>(v)));
-            }
-            else if (v.type() == typeid(double)) {
-                parameters.emplace_back(v8::Number::New(isolate, any_cast<double>(v)));
-            }
-            else if (v.type() == typeid(std::string)) {
-                parameters.emplace_back(v8::String::NewFromUtf8(
-                    isolate, any_cast<std::string>(v).c_str(), v8::NewStringType::kNormal).ToLocalChecked());
-            }
-            else {
-                std::string errorMessage("Currently unsupported type in zone event emitter: ");
-                errorMessage += v.type().name();
-                throw std::runtime_error(errorMessage);
-            }
-        }
-        return parameters;
-    }
-};
-
-// When call some zone's On() in specific worker (highly possible in node's main loop), 
-//     *) new ZoneEmitContext will be created, where
-//          +) uv_async_t handle will be created and added to current worker's loop, 
-//             it will be activated when the event is emitted from the zone.
-//          *) wrapper call back logic will be created to call the jsFunc when
-//             above uv_async_t handle is activated and executed later in current worker's 
-//             loop. at that time, real call back parameter is known and should be
-//             set in the ZoneEmitContext's _args.
-void NapaZone::On(const std::string& event, Local<Function> jsFunc) {
-    auto isolate = Isolate::GetCurrent();
-    auto persistContext = std::make_shared<Persistent<Context>>(isolate, isolate->GetCurrentContext());
-    auto persistFunc = std::make_shared<Persistent<Function>>(isolate, jsFunc);
-
-    auto emitContext = new ZoneEmitContext(
-        [event, persistFunc, persistContext](ZoneEmitContext* emitContext) {
-            auto isolate = Isolate::GetCurrent();
-            v8::HandleScope handle_scope(isolate);
-            auto context = Local<Context>::New(isolate, *persistContext);
-            Context::Scope contextScope(context);
-            Local<v8::Context> local_context = v8::Context::New(isolate);
-
-            auto jsCallback = Local<Function>::New(isolate, *persistFunc);
-            std::vector<Local<Value>> parameters = emitContext->getCallingParameters(isolate);
-            jsCallback->Call(context, context->Global(), static_cast<int>(parameters.size()), parameters.data());
-            persistFunc->Reset();
-            persistContext->Reset();
-        }
-    );
-    
-    // Hook helper to trigger and execute the event callback in caller's isolation.
-    uv_loop_t* loop = reinterpret_cast<uv_loop_t*>(zone::WorkerContext::Get(zone::WorkerContextItem::EVENT_LOOP));
-    uv_async_init(loop, &emitContext->_h, [](uv_async_t* h) {
-            auto emitContext = reinterpret_cast<ZoneEmitContext*>(h->data);
-            emitContext->_cb(emitContext);
-            uv_close(reinterpret_cast<uv_handle_t*>(h), [](uv_handle_t* h) { 
-                delete reinterpret_cast<ZoneEmitContext*>(h->data);
-            });
-        });
-    emitContext->_h.data = emitContext;
-
+void NapaZone::On(napa::zone::ZoneEmitContext* emitContext) {
     // Add listener to target zone's event emitter, which set caller args and trigger above helper upon event emitted.
     std::function<void(std::vector<any>)> cb = [emitContext](std::vector<any> args) {
         emitContext->_args = args;
         uv_async_send(&(emitContext->_h));
     };
-    _impl->_events.On(event, cb);
+    _impl->_events.On(emitContext->_event, cb);
 }
 
 

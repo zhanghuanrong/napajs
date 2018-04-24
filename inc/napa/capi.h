@@ -96,7 +96,7 @@ EXTERN_C NAPA_API void napa_zone_recycle(napa_zone_handle handle);
 
 
 // <summary>
-EXTERN_C NAPA_API void napa_zone_on(napa_zone_handle handle, const char* eventName, v8::Local<v8::Function> jsFunc);
+EXTERN_C NAPA_API void napa_zone_on(napa_zone_handle handle, void* zoneEmitContxt);
 
 
 /// <summary>

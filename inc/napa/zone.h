@@ -157,8 +157,8 @@ namespace napa {
         }
 
 
-        void On(const std::string& event, v8::Local<v8::Function> jsFunc) {
-            napa_zone_on(_handle, event.c_str(), jsFunc);
+        void On(void* zoneEmitContext) {
+            napa_zone_on(_handle, zoneEmitContext);
         }
 
         /// <summary> Retrieves a new zone proxy for the zone id, throws if zone is not found. </summary>

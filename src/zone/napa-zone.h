@@ -4,6 +4,7 @@
 #pragma once
 
 #include "zone.h"
+#include "zone-emitter.h"
 
 #include "zone/scheduler.h"
 #include "settings/settings.h"
@@ -40,7 +41,7 @@ namespace zone {
         /// <see cref="Zone::Execute" />
         virtual void Execute(const FunctionSpec& spec, ExecuteCallback callback) override;
 
-        virtual void On(const std::string& event, v8::Local<v8::Function> jsFunc) override;
+        virtual void On(ZoneEmitContext* emitContext) override;
 
         /// <see cref="Zone::Recycle" />
         virtual void Recycle() override;

@@ -2,6 +2,7 @@
 // Licensed under the MIT license.
 
 #include "zone-wrap.h"
+#include "zone/zone-emitter.h"
 
 #include "transport-context-wrap-impl.h"
 
@@ -280,6 +281,14 @@ void ZoneWrap::Recycle(const v8::FunctionCallbackInfo<v8::Value>& args) {
 }
 
 
+// When call some zone's On() in specific worker (highly possible in node's main loop), 
+//     *) new ZoneEmitContext will be created, where
+//          +) uv_async_t handle will be created and added to current worker's loop, 
+//             it will be activated when the event is emitted from the target zone.
+//          *) wrapper call back logic will be created to call the jsFunc when
+//             above uv_async_t handle is activated and executed later in current worker's 
+//             loop. at that time, real call back args are known and should be
+//             set in the ZoneEmitContext's _args.
 void ZoneWrap::On(const v8::FunctionCallbackInfo<v8::Value>& args) {
     auto isolate = v8::Isolate::GetCurrent();
     auto wrap = ObjectWrap::Unwrap<ZoneWrap>(args.Holder());
@@ -291,5 +300,36 @@ void ZoneWrap::On(const v8::FunctionCallbackInfo<v8::Value>& args) {
     std::string eventName(*event, event.length());
     v8::Local<v8::Function> jsFunction = v8::Local<v8::Function>::Cast(args[1]);
 
-    wrap->_zoneProxy->On(eventName, jsFunction);
+    auto persistContext = std::make_shared<v8::Persistent<v8::Context>>(isolate, isolate->GetCurrentContext());
+    auto persistFunc = std::make_shared<v8::Persistent<v8::Function>>(isolate, jsFunction);
+
+    auto emitContext = new napa::zone::ZoneEmitContext(
+        eventName,
+        [persistFunc, persistContext](napa::zone::ZoneEmitContext* emitContext) {
+            auto isolate = v8::Isolate::GetCurrent();
+            v8::HandleScope handle_scope(isolate);
+            auto context = v8::Local<v8::Context>::New(isolate, *persistContext);
+            v8::Context::Scope contextScope(context);
+            v8::Local<v8::Context> local_context = v8::Context::New(isolate);
+
+            auto jsCallback = v8::Local<v8::Function>::New(isolate, *persistFunc);
+            std::vector<v8::Local<v8::Value>> parameters = emitContext->getCallingParameters(isolate);
+            jsCallback->Call(context, context->Global(), static_cast<int>(parameters.size()), parameters.data());
+            persistFunc->Reset();
+            persistContext->Reset();
+        }
+    );
+    
+    // Hook helper to trigger and execute the event callback in caller's isolation.
+    uv_loop_t* loop = reinterpret_cast<uv_loop_t*>(zone::WorkerContext::Get(zone::WorkerContextItem::EVENT_LOOP));
+    uv_async_init(loop, &emitContext->_h, [](uv_async_t* h) {
+            auto emitContext = reinterpret_cast<napa::zone::ZoneEmitContext*>(h->data);
+            emitContext->_cb(emitContext);
+            uv_close(reinterpret_cast<uv_handle_t*>(h), [](uv_handle_t* h) { 
+                delete reinterpret_cast<napa::zone::ZoneEmitContext*>(h->data);
+            });
+        });
+    emitContext->_h.data = emitContext;
+
+    wrap->_zoneProxy->On(emitContext);
 }

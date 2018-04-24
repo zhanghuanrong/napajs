@@ -8,6 +8,7 @@
 
 namespace napa {
 namespace zone {
+    class ZoneEmitContext;
 
     /// <summary> Interface for Zone. </summary>
     struct Zone {
@@ -39,7 +40,7 @@ namespace zone {
         /// <summary> Recycle the zone so it will no longer be able to schedule new tasks. </summary>
         virtual void Recycle() = 0;
 
-        virtual void On(const std::string& event, v8::Local<v8::Function> jsFunc) { }
+        virtual void On(ZoneEmitContext* emitContext) { }
 
         /// <summary> Virtual destructor. </summary>
         virtual ~Zone() {}
