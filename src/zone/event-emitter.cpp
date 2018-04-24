@@ -20,4 +20,3 @@ void EventEmitter::RemoveListenersOn(const EventEmitter::Event& event)
     std::lock_guard<std::mutex> lock(_mutex);
     _listeners.erase(event);
 }
-

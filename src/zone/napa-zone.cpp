@@ -20,6 +20,13 @@
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
+#include <stdexcept>
+
+// use c++11 implementation of std::any in C++17
+#include "any.hpp"
+using linb::any;
+using linb::any_cast;
+
 
 using namespace napa;
 using namespace napa::zone;
@@ -68,9 +75,6 @@ using namespace napa::zone;
 // destructer may be triggered by napa_zone_release() via CAPI or javascript GC
 
 namespace {
-    // NapaZoneEventEmitter helps to notify the zone status change
-    struct NapaZoneEventEmitter;
-
     // NapaZoneImpl is the unique instance that lives through the whole lifecycle of a zone
     struct NapaZoneImpl;
 
@@ -266,7 +270,8 @@ NapaZone::NapaZone(const settings::ZoneSettings& settings) :
             // destruct the scheduler, which also destruct the workers.
             impl->_scheduler.reset();
 
-            impl->_events.Emit("Terminated", exit_code);
+            impl->_events.Emit("Terminated", std::vector<any>{exit_code});
+            impl->_events.RemoveListenersOn("Terminated");
             impl->_zoneData->_recyclePlaceHolder.reset();
 
             {
@@ -363,35 +368,53 @@ void NapaZone::Recycle() {
                 _impl->_zoneData->_persistent.reset();
             }
 
-            _impl->_events.Emit("Recycling");
+            _impl->_events.Emit("Recycling", std::vector<any>{});
+            _impl->_events.RemoveListenersOn("Recycling");
         }
     }
 }
 
+
+using v8::Local;
+using v8::Persistent;
+using v8::Value;
+using v8::Isolate;
+using v8::Context;
+using v8::Function;
+
 struct ZoneEmitContext {
     uv_async_t _h;
     
-    std::function<void (uv_async_t*)> _cb;
+    // This callback will be executed after event is triggered, and notified to the caller's isolation.
+    std::function<void (ZoneEmitContext*)> _cb;
 
-    // std::tuple where size and types are interpreted and understand by the _cb function
-    void* _args; 
+    // Real args when event is emitted.
+    std::vector<any> _args;
 
-    int _listener_id;
-
-    ZoneEmitContext(std::function<void (uv_async_t*)> cb)
-        : _h(), _args(nullptr), _cb(cb), _listener_id(0) {
+    ZoneEmitContext(std::function<void (ZoneEmitContext*)> cb)
+        : _h(), _cb(cb), _args() {
     }
 
-    std::vector<v8::Local<v8::Value>> 
-    getCallingParameters(const std::string& event, v8::Isolate* isolate) {
-        std::vector<v8::Local<v8::Value>> parameters;
-        if (_args != nullptr) {
-            if (event.compare("Terminated") == 0) {
-                parameters.reserve(1);
-                std::tuple<int>* t = reinterpret_cast<std::tuple<int> *>(_args);
-                int exit_code = std::get<0>(*t);
-                v8::Local<v8::Integer> lv_exit_code = v8::Integer::New(isolate, exit_code);
-                parameters.push_back(lv_exit_code);
+    std::vector<Local<Value>> 
+    getCallingParameters(Isolate* isolate) {
+        std::vector<Local<Value>> parameters;
+        parameters.reserve(_args.size());
+        for (size_t i = 0; i < _args.size(); ++i) {
+            any& v = _args[i];
+            if (v.type() == typeid(int)) {
+                parameters.emplace_back(v8::Integer::New(isolate, any_cast<int>(v)));
+            }
+            else if (v.type() == typeid(double)) {
+                parameters.emplace_back(v8::Number::New(isolate, any_cast<double>(v)));
+            }
+            else if (v.type() == typeid(std::string)) {
+                parameters.emplace_back(v8::String::NewFromUtf8(
+                    isolate, any_cast<std::string>(v).c_str(), v8::NewStringType::kNormal).ToLocalChecked());
+            }
+            else {
+                std::string errorMessage("Currently unsupported type in zone event emitter: ");
+                errorMessage += v.type().name();
+                throw std::runtime_error(errorMessage);
             }
         }
         return parameters;
@@ -405,58 +428,51 @@ struct ZoneEmitContext {
 //          *) wrapper call back logic will be created to call the jsFunc when
 //             above uv_async_t handle is activated and executed later in current worker's 
 //             loop. at that time, real call back parameter is known and should be
-//             set in the ZoneEmitContext's _cbParamters.
-void NapaZone::On(const std::string& event, v8::Local<v8::Function> jsFunc) {
-    auto isolate = v8::Isolate::GetCurrent();
-    auto persistFunc = std::make_shared<v8::Persistent<v8::Function>>(isolate, jsFunc);
+//             set in the ZoneEmitContext's _args.
+void NapaZone::On(const std::string& event, Local<Function> jsFunc) {
+    auto isolate = Isolate::GetCurrent();
+    auto persistContext = std::make_shared<Persistent<Context>>(isolate, isolate->GetCurrentContext());
+    auto persistFunc = std::make_shared<Persistent<Function>>(isolate, jsFunc);
 
-    // TODO: save context here to the onEvent capture
-    auto onEvent = [event, persistFunc](uv_async_t* h) {
-        ZoneEmitContext* emitContext = reinterpret_cast<ZoneEmitContext*>(h->data);
-
-        {
-            auto isolate = v8::Isolate::GetCurrent();
+    auto emitContext = new ZoneEmitContext(
+        [event, persistFunc, persistContext](ZoneEmitContext* emitContext) {
+            auto isolate = Isolate::GetCurrent();
             v8::HandleScope handle_scope(isolate);
-            v8::Local<v8::Context> local_context = v8::Context::New(isolate);
-            auto jsCallback = v8::Local<v8::Function>::New(isolate, *persistFunc);
-            std::vector<v8::Local<v8::Value>> parameters = emitContext->getCallingParameters(event, isolate);
-            jsCallback->Call(isolate->GetCurrentContext()->Global(), parameters.size(), parameters.data());
-        }
-        
-        persistFunc->Reset();
-    };
+            auto context = Local<Context>::New(isolate, *persistContext);
+            Context::Scope contextScope(context);
+            Local<v8::Context> local_context = v8::Context::New(isolate);
 
-    ZoneEmitContext* emitContext = new ZoneEmitContext(onEvent);
+            auto jsCallback = Local<Function>::New(isolate, *persistFunc);
+            std::vector<Local<Value>> parameters = emitContext->getCallingParameters(isolate);
+            jsCallback->Call(context, context->Global(), static_cast<int>(parameters.size()), parameters.data());
+            persistFunc->Reset();
+            persistContext->Reset();
+        }
+    );
     
+    // Hook helper to trigger and execute the event callback in caller's isolation.
     uv_loop_t* loop = reinterpret_cast<uv_loop_t*>(zone::WorkerContext::Get(zone::WorkerContextItem::EVENT_LOOP));
     uv_async_init(loop, &emitContext->_h, [](uv_async_t* h) {
             auto emitContext = reinterpret_cast<ZoneEmitContext*>(h->data);
-            emitContext->_cb(h);
-            delete emitContext;
+            emitContext->_cb(emitContext);
+            uv_close(reinterpret_cast<uv_handle_t*>(h), [](uv_handle_t* h) { 
+                delete reinterpret_cast<ZoneEmitContext*>(h->data);
+            });
         });
     emitContext->_h.data = emitContext;
 
-    int listener_id = 0;
-    if (event.compare("Terminated") == 0) {
-        // call back parameter is (int exit_code)
-        std::function<void(int)> cb = [emitContext](int exit_code) -> void {
-            emitContext->_args = static_cast<void*>(new std::tuple<int>{exit_code});
-            uv_async_send(&(emitContext->_h));
-        };
-        listener_id = _impl->_events.On(event, cb);
-    }
-    else { //default, no call back parameter
-        std::function<void()> cb = [emitContext]() {
-            uv_async_send(&(emitContext->_h));
-        };
-        listener_id = _impl->_events.On(event, cb);
-    }
-    emitContext->_listener_id = listener_id;
+    // Add listener to target zone's event emitter, which set caller args and trigger above helper upon event emitted.
+    std::function<void(std::vector<any>)> cb = [emitContext](std::vector<any> args) {
+        emitContext->_args = args;
+        uv_async_send(&(emitContext->_h));
+    };
+    _impl->_events.On(event, cb);
 }
 
 
 NapaZone::~NapaZone() {
     // _activeZones[this_zone_id] is expired by now
     Recycle();
-    _impl->_events.Emit("Recycled");
+    _impl->_events.Emit("Recycled", std::vector<any>{});
+    _impl->_events.RemoveListenersOn("Recycled");
 }

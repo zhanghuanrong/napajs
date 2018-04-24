@@ -24,8 +24,6 @@ class EventEmitter
     template <typename... Args>
     int On(const Event& event, std::function<void(Args...)> cb);
 
-    //unsigned int On(const Event event, std::function<void()> cb);
-
     void RemoveListener(int listener_id);
 
     void RemoveListenersOn(const Event& event);
@@ -58,14 +56,6 @@ class EventEmitter
     EventEmitter(const EventEmitter &) = delete;
     const EventEmitter &operator=(const EventEmitter &) = delete;
 };
-
-// unsigned int EventEmitter::On(const EventEmitter::Event event, std::function<void()> cb)
-// {
-//     std::lock_guard<std::mutex> lock(_mutex);
-//     unsigned int listener_id = ++_last_listener;
-//     _listeners.insert(std::make_pair(event, std::make_shared<Listener<>>(listener_id, cb)));
-//     return listener_id;
-// }
 
 
 template <typename... Args>
