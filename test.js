@@ -29,18 +29,26 @@ nodezone.execute((sharable, sharedArrayBuffer) => {
     console.log('...3...zone execute callback......', r.value, global.__zone_id, global.__worker_id);
 });
 
+napazone.on('Terminated', (ec) => {
+    console.log("napazone exited with code:", ec);
+});
+
 
 napazone.on('Recycling', () => {
     console.log("napazone is under recycling...");
 });
 
-napazone.on('Recycled', () => {
-    console.log("napazone was recycled...");
-});
-
-napazone.on('Terminated', (ec) => {
-        console.log("napazone exited with code:", ec);
-    });
-
 napazone.recycle();
+
+// // Recycled will not happen in normal case :(
+// napazone.on('Recycled', () => {
+//     console.log("napazone was recycled...");
+// });
+
+// //process.exit will crash in worker
+// napazone.execute(() => {
+//     process.exit(1);
+// });
+   
+
 
