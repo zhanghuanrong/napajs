@@ -36,7 +36,7 @@ namespace zone {
         SchedulerImpl(
             const settings::ZoneSettings& settings,
             std::function<void(WorkerId, uv_loop_t*)> workerSetupCallback,
-            std::function<void()> exitCallback);
+            std::function<void()> zoneExitCallback);
 
         /// <summary> Destructor. Waits for all tasks to finish. </summary>
         ~SchedulerImpl();
@@ -104,7 +104,7 @@ namespace zone {
     SchedulerImpl<WorkerType>::SchedulerImpl(
         const settings::ZoneSettings& settings,
         std::function<void(WorkerId, uv_loop_t*)> workerSetupCallback,
-        std::function<void()> exitCallback) :
+        std::function<void()> zoneExitCallback) :
         _idleWorkersFlags(settings.workers, _idleWorkers.end()),
         _perWorkerNonScheduledTasks(settings.workers),
         _currentTaskSequence(0),
@@ -113,9 +113,9 @@ namespace zone {
         // Create the synchronizer if it's not ready.
         std::call_once(_synchronizerCreateOnceFlag, [](){ _synchronizer = std::make_unique<SimpleThreadPool>(1); });
 
-        auto counter = std::make_shared<std::atomic<uint32_t>>(settings.workers);
-        auto exitOnce = [exitCallback = std::move(exitCallback), counter]() {
-            if (--(*counter) == 0) {
+        auto activeWorkers = std::make_shared<std::atomic<uint32_t>>(settings.workers);
+        auto workerExitCallback = [exitCallback = std::move(zoneExitCallback), activeWorkers]() {
+            if (--(*activeWorkers) == 0) {
                 // use synchronizer to destruct scheduler and workers
                 _synchronizer->Execute([](std::function<void()> exitCallback) {
                     exitCallback();
@@ -128,9 +128,9 @@ namespace zone {
             _workers.emplace_back(i, settings, workerSetupCallback, [this](WorkerId workerId) {
                 // idle callback
                 IdleWorkerNotificationCallback(workerId);
-            }, [exitOnce](WorkerId workerId) {
+            }, [workerExitCallback](WorkerId workerId) {
                 // exit callback
-                exitOnce();
+                workerExitCallback();
             });
             _workers[i].Start();
         }

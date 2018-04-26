@@ -149,7 +149,8 @@ namespace {
         }
     };
 
-    std::mutex _mutex;
+    // TODO: create a type ZoneManager to deal with all static data, types and status.
+    std::mutex _mutexZoneStaticData;
 
     std::unordered_map<std::string, std::weak_ptr<NapaZone>> _activeZones; // ID to zone instance, remove when GC
     std::unordered_set<std::shared_ptr<ZoneData>> _allZones; // remove when GC
@@ -163,7 +164,7 @@ static const std::string BOOTSTRAP_SOURCE = "require('" + utils::string::Replace
 static const std::string WORKER_RECYCLE_FUNCTION = "__recycle";
 
 std::shared_ptr<NapaZone> NapaZone::Create(const settings::ZoneSettings& settings) {
-    std::lock_guard<std::mutex> lock(_mutex);
+    std::lock_guard<std::mutex> lock(_mutexZoneStaticData);
 
     auto iter = _activeZones.find(settings.id);
     if (iter != _activeZones.end() && !iter->second.expired()) {
@@ -194,7 +195,7 @@ std::shared_ptr<NapaZone> NapaZone::Create(const settings::ZoneSettings& setting
 }
 
 std::shared_ptr<Zone> NapaZone::Get(const std::string& id) {
-    std::lock_guard<std::mutex> lock(_mutex);
+    std::lock_guard<std::mutex> lock(_mutexZoneStaticData);
 
     auto iter = _activeZones.find(id);
     if (iter == _activeZones.end()) {
@@ -337,7 +338,7 @@ void NapaZone::Execute(const FunctionSpec& spec, ExecuteCallback callback) {
 
 void NapaZone::Recycle() {
     if (!_recycling) {
-        std::lock_guard<std::mutex> lock(_mutex);
+        std::lock_guard<std::mutex> lock(_mutexZoneStaticData);
         if (!_recycling) {
             // broadcast exit script
             FunctionSpec exitSpec;

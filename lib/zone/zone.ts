@@ -32,8 +32,8 @@ export interface ZoneSettings {
 /// <summary> Default ZoneSettings </summary>
 export let DEFAULT_SETTINGS: ZoneSettings = {
 
-    /// <summary> Set default workers to 1. </summary>
-    workers: 1,
+    /// <summary> Set default workers to 2. </summary>
+    workers: 2,
 
     /// <summary> Set default recycling option to AUTO. </summary>
     recycle: ZoneRecycleMode.AUTO

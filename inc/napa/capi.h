@@ -34,7 +34,7 @@ EXTERN_C NAPA_API napa_zone_handle napa_zone_get_current();
 /// <summary> Releases the zone handle. When all handles for a zone are released the zone is recycled. </summary>
 /// <param name="handle"> The zone handle. </param>
 /// <remarks>
-///     Depending on the Zone's recycle mode (specified when initialized), release behavior may varies. See
+///     Depending on the Zone's recycle mode (specified when initialized), release behavior may vary. See
 ///     also remarks of napa_zone_recycle() for more information.
 /// </remarks>
 EXTERN_C NAPA_API napa_result_code napa_zone_release(napa_zone_handle handle);

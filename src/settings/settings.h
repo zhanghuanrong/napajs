@@ -33,7 +33,7 @@ namespace settings {
         std::string id;
 
         /// <summary> The number of zone workers. </summary>
-        uint32_t workers = 1;
+        uint32_t workers = 2;
 
         /// <summary> Set default recycle mode to AUTO. </summary>
         RecycleMode recycle = RecycleMode::Auto;
