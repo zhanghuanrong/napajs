@@ -155,18 +155,10 @@ void Worker::Schedule(std::shared_ptr<Task> task) {
 }
 
 void Worker::WorkerThreadFunc(const settings::ZoneSettings& settings) {
-    const char* worker_argv[4];
-    worker_argv[0] = "node";
-    worker_argv[1] = NAPA_WORKER_INIT_PATH.c_str();
-    // zone id.
-    worker_argv[2] = settings.id.c_str();
-    // worker id.
-    auto workId = std::to_string(_impl->id);
-    worker_argv[3] = workId.c_str();
-
-    ///////////////////////////
     // Create Isolate.
-    v8::Isolate* isolate = node::CreateIsolateAsSameAsNodeMain();
+    v8::Isolate::CreateParams params;
+    params.array_buffer_allocator = v8::ArrayBuffer::Allocator::NewDefaultAllocator();
+    v8::Isolate* isolate = v8::Isolate::New(params);
     NAPA_ASSERT(isolate, "Failed to create v8 isolate for worker.");
     _impl->isolate = isolate;
 
@@ -179,7 +171,7 @@ void Worker::WorkerThreadFunc(const settings::ZoneSettings& settings) {
         v8::Locker locker(isolate);
         v8::Isolate::Scope isolate_scope(isolate);
         v8::HandleScope handle_scope(isolate);
-        node::IsolateData* isolate_data = node::CreateIsolateDataAsSameAsNodeMain(isolate, &_impl->loop, multiIsolatePlatform);
+        node::IsolateData* isolate_data = node::CreateIsolateData(isolate, &_impl->loop, multiIsolatePlatform);
 
         // Napa releted setting.
         _impl->foregroundTaskRunner = multiIsolatePlatform->GetForegroundTaskRunner(isolate).get();
@@ -188,11 +180,21 @@ void Worker::WorkerThreadFunc(const settings::ZoneSettings& settings) {
         _impl->idleNotificationCallback(_impl->id);
         NAPA_DEBUG("Worker", "(id=%u) Setup completed.", _impl->id);
 
-        // Create Context and node::Environment.
-        v8::Local<v8::Context> context = node::CreateContextAsSameAsNodeMain(isolate);
+        // Create Context.
+        v8::Local<v8::Context> context = v8::Context::New(isolate);
         v8::Context::Scope context_scope(context);
+
+        // Create node::Environment.
+        const char* worker_argv[4];
+        worker_argv[0] = "node";
+        worker_argv[1] = NAPA_WORKER_INIT_PATH.c_str();
+        // zone id.`
+        worker_argv[2] = settings.id.c_str();
+        // worker id.
+        auto workId = std::to_string(_impl->id);
+        worker_argv[3] = workId.c_str();
         node::Environment* env = node::CreateEnvironment(isolate_data, context, 4, worker_argv, 0, nullptr);
-        node::LoadEnvironmentAsSameAsNodeMain(env);
+        node::LoadEnvironment(env);
 
         // Run uv loop.
         {
@@ -217,5 +219,4 @@ void Worker::WorkerThreadFunc(const settings::ZoneSettings& settings) {
     }
 
     isolate->Dispose();
-    /////////////////////////////
 }
