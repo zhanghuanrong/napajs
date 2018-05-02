@@ -19,6 +19,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include <string.h>
+
 using namespace napa;
 using namespace napa::zone;
 
@@ -79,25 +81,36 @@ namespace {
     struct ZoneData;
 
 
-    struct NapaZoneEventEmitter {
-        // TBD: NapaZoneEventEmitter: the following methods should be implemented.
-        // They should run very fast (no any blocking operation)
-        void OnCreated() {}
-        void OnRecycling() {}
-        void OnRecycled() {}
-        void OnTerminated() {}
-
-        ~NapaZoneEventEmitter() {
-            NAPA_DEBUG("Zone", "Destructor NapaZoneEventEmitter");
-        }
-    };
-
+  
     struct NapaZoneImpl { // address of 'this' will be stored to TLS (WorkerContextItem::ZONE)
         Zone::State _state;
         settings::ZoneSettings _settings; // address of '_settings.id' will be stored to TLS (WorkerContextItem::ZONE_ID)
         std::unique_ptr<Scheduler> _scheduler;
         std::shared_ptr<ZoneData> _zoneData;
-        NapaZoneEventEmitter _events;
+
+        void EmitEvent(const char* event...) {
+            auto isolate = v8::Isolate::GetCurrent();
+            auto context = isolate->GetCurrentContext();
+            v8::HandleScope scope(isolate);
+
+            const char* emitterZoneName = _settings.id.c_str();
+            v8::Local<v8::String> funcName = v8::String::NewFromUtf8(
+                    isolate, "napa.impl.__emit_zone_event", v8::NewStringType::kNormal).ToLocalChecked();
+            v8::Local<v8::Value> funcHandle = context->Global()->Get(funcName);
+            v8::Local<v8::Function> func = v8::Local<v8::Function>::Cast(funcHandle);
+
+            std::vector<v8::Local<v8::Value>> parameters;
+            parameters.emplace_back(v8::String::NewFromUtf8(isolate, emitterZoneName, v8::NewStringType::kNormal).ToLocalChecked());
+            parameters.emplace_back(v8::String::NewFromUtf8(isolate, event, v8::NewStringType::kNormal).ToLocalChecked());
+
+            va_list args;
+            va_start(args, event);
+            if (strcmp(event, "Terminated") == 0) {
+                int exit_code = va_arg(args, int);
+                parameters.emplace_back(v8::Integer::New(isolate, exit_code));
+            }
+            va_end(args);
+        }
 
         ~NapaZoneImpl() {
             NAPA_DEBUG("Zone", "Destructor NapaZoneImpl");
@@ -260,7 +273,7 @@ NapaZone::NapaZone(const settings::ZoneSettings& settings) :
             // destruct the scheduler, which also destruct the workers.
             impl->_scheduler.reset();
 
-            impl->_events.OnTerminated();
+            impl->EmitEvent("Terminated", 0);
             impl->_zoneData->_recyclePlaceHolder.reset();
             _allZones.erase(impl->_zoneData);
         });
@@ -345,8 +358,8 @@ void NapaZone::Recycle() {
             exitSpec.function = STD_STRING_TO_NAPA_STRING_REF(WORKER_RECYCLE_FUNCTION);
             Broadcast(exitSpec, [](Result){});
 
-            _impl->_events.OnRecycling();
             _recycling = true;
+            _impl->EmitEvent("Recycling");
 
             if (_impl->_settings.recycle == settings::ZoneSettings::RecycleMode::Manual) {
                 _impl->_zoneData->_persistent.reset();
@@ -358,5 +371,5 @@ void NapaZone::Recycle() {
 NapaZone::~NapaZone() {
     // _activeZones[this_zone_id] is expired by now
     Recycle();
-    _impl->_events.OnRecycled();
+    _impl->EmitEvent("Recycled");
 }

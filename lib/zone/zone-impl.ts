@@ -184,4 +184,47 @@ export class ZoneImpl implements zone.Zone {
             transportContext: transportContext
         };
     }
+
+
+    // All zone event will notify to nodezone first. So register listener
+    // in nodezone, and execute on the promise resolved.
+    public on(event: string, func:(...args: any[]) => void) : void {
+        let nodezone = napa.zone.node;
+        nodezone.execute((emitterZoneName, event) : Promise<any[]> => {
+            let p = new Promise((resolve, reject) => {
+                if (!napa.impl.__zone_events_handler[emitterZoneName]) {
+                    napa.impl.__zone_events_handler[emitterZoneName] = {};
+                }
+                let zoneEvents = napa.impl.__zone_events_handler[emitterZoneName];
+                if (!zoneEvents[event]) {
+                    zoneEvents[event] = [];
+                }
+                let listeners = zoneEvents[event];
+                listeners.push([resolve, reject]);
+            });
+        }, [this.id, event])
+        .then((...result:any[]) => {
+            func(result);
+        });
+    }
 }
+
+// [zoneName][eventName] as promis array. This only works in node main.
+let __zone_events_handler = {};
+
+export {__zone_events_handler};
+
+// called by c++ code upon zone events.
+export function __emit_zone_event(emitterZoneName: string, event:string, ...args: any[]): void {
+    let nodezone = napa.zone.node;
+    nodezone.execute((emitterZoneName: string, event:string, ...args: any[]) => {
+        if (napa.impl.__zone_events_handler[emitterZoneName] && napa.impl.__zone_events_handler[emitterZoneName][event]) {
+            let listeners = napa.impl.__zone_events_handler[emitterZoneName][event];
+            while (listeners.length > 0) {
+                let resolve = listeners.shift()[0];
+                resolve(args);
+            }
+        }
+    }, [emitterZoneName, event, args]);
+}
+
