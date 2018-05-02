@@ -30,7 +30,7 @@ NodeZone::NodeZone(BroadcastDelegate broadcast, ExecuteDelegate execute):
     NAPA_ASSERT(_execute, "Execute delegate must be a valid function.");
 
     v8::Isolate* isolate = v8::Isolate::GetCurrent();
-    node::MultiIsolatePlatform* platform = node::GetNodeMultiIsolatePlatform();
+    node::MultiIsolatePlatform* platform = node::GetMainThreadMultiIsolatePlatform();
     NAPA_ASSERT(platform, "Node MultiIsolatePlatform must exist.");
 
     _foregroundTaskRunner = platform->GetForegroundTaskRunner(isolate).get();

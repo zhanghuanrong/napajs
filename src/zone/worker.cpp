@@ -164,7 +164,7 @@ void Worker::WorkerThreadFunc(const settings::ZoneSettings& settings) {
 
     {
         // Get MultiIsolatePlatform.
-        node::MultiIsolatePlatform* multiIsolatePlatform = node::GetNodeMultiIsolatePlatform();
+        node::MultiIsolatePlatform* multiIsolatePlatform = node::GetMainThreadMultiIsolatePlatform();
         NAPA_ASSERT(multiIsolatePlatform, "Node MultiIsolatePlatform must exist.");
 
         // Create IsolateData.
