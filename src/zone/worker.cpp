@@ -194,6 +194,16 @@ void Worker::WorkerThreadFunc(const settings::ZoneSettings& settings) {
         auto workId = std::to_string(_impl->id);
         worker_argv[3] = workId.c_str();
         node::Environment* env = node::CreateEnvironment(isolate_data, context, 4, worker_argv, 0, nullptr);
+
+        // Problem: it would impact relevant execution behavior because,
+        // 1. this logic couples with node bootstrapping logic,
+        // 2. the flag is a setting shared at process level.
+        // TODO : Re-evaluate the impact and figure out a solid solution at node.js / napa.js.
+        // node::LoadEnvironment need access to V8 intrinsics by flag '--allow_natives_syntax'.
+        // If the flag haven't been specified when launching node.js,
+        // it will be disabled again during node bootstrapping.
+        const char allow_natives_syntax[] = "--allow_natives_syntax";
+        v8::V8::SetFlagsFromString(allow_natives_syntax, sizeof(allow_natives_syntax) - 1);
         node::LoadEnvironment(env);
 
         // Run uv loop.
