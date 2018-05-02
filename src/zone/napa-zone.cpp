@@ -2,6 +2,7 @@
 // Licensed under the MIT license.
 
 #include "napa-zone.h"
+#include "node-zone.h"
 
 #include <platform/dll.h>
 #include <platform/filesystem.h>
@@ -17,6 +18,12 @@
 #include <future>
 #include <unordered_map>
 #include <unordered_set>
+
+#include <string.h>
+#include <sstream>
+#include <vector>
+#include <algorithm>
+#include <iostream>
 
 using namespace napa;
 using namespace napa::zone;
@@ -78,25 +85,49 @@ namespace {
     struct ZoneData;
 
 
-    struct NapaZoneEventEmitter {
-        // TBD: NapaZoneEventEmitter: the following methods should be implemented.
-        // They should run very fast (no any blocking operation)
-        void OnCreated() {}
-        void OnRecycling() {}
-        void OnRecycled() {}
-        void OnTerminated() {}
-
-        ~NapaZoneEventEmitter() {
-            NAPA_DEBUG("Zone", "Destructor NapaZoneEventEmitter");
-        }
-    };
-
+  
     struct NapaZoneImpl { // address of 'this' will be stored to TLS (WorkerContextItem::ZONE)
         Zone::State _state;
         settings::ZoneSettings _settings; // address of '_settings.id' will be stored to TLS (WorkerContextItem::ZONE_ID)
         std::unique_ptr<Scheduler> _scheduler;
         std::shared_ptr<ZoneData> _zoneData;
-        NapaZoneEventEmitter _events;
+
+        // run emitter in node's main thread with parameters
+        void EmitEvent(const char* event, ...) {
+            const char* emitterZoneName = _settings.id.c_str();
+            NAPA_DEBUG("Zone", "ZoneEventEmitter--zone:%s is emitting event:%s", emitterZoneName, event);
+
+            auto nodezone = napa::zone::NodeZone::Get();
+            napa::FunctionSpec fspec;
+            fspec.function = NAPA_STRING_REF("eval");
+
+            // Better escape should be used in future if needed.
+            std::ostringstream ss;
+            ss << "\"__emit_zone_event(\'" << emitterZoneName << "\', \'" << event << "\'";
+
+            va_list args;
+            va_start(args, event);
+            if (strcmp(event, "Terminated") == 0) {
+                // TODO: more reasonable way to get zone exit_code
+                int exit_code = 0;
+                ss << ", " << exit_code;
+            }
+            va_end(args);
+            ss << ");\"";
+
+            auto evalScript = new std::string(ss.str());
+            NAPA_DEBUG("Zone", "ZoneEventEmitter--code to execute in node main:%s", evalScript->c_str());
+            fspec.arguments.emplace_back(NAPA_STRING_REF_WITH_SIZE(evalScript->c_str(), evalScript->size()));
+            fspec.transportContext.reset(nullptr);
+
+            nodezone->Execute(fspec, [evalScript](napa::Result r) {
+                //Nothing will require calling zone worker's existence.
+                if (r.errorMessage.size() > 0) {
+                    LOG_ERROR("Zone", "Error when emit event: %s", r.errorMessage.c_str());
+                }
+                delete evalScript;
+            });
+        }
 
         ~NapaZoneImpl() {
             NAPA_DEBUG("Zone", "Destructor NapaZoneImpl");
@@ -259,7 +290,9 @@ NapaZone::NapaZone(const settings::ZoneSettings& settings) :
             // destruct the scheduler, which also destruct the workers.
             impl->_scheduler.reset();
 
-            impl->_events.OnTerminated();
+            // TODO: correcting exit_code logic.
+            int zone_exit_code = 0;
+            impl->EmitEvent("Terminated", zone_exit_code);
             impl->_zoneData->_recyclePlaceHolder.reset();
             _allZones.erase(impl->_zoneData);
         });
@@ -344,8 +377,8 @@ void NapaZone::Recycle() {
             exitSpec.function = STD_STRING_TO_NAPA_STRING_REF(WORKER_RECYCLE_FUNCTION);
             Broadcast(exitSpec, [](Result){});
 
-            _impl->_events.OnRecycling();
             _recycling = true;
+            _impl->EmitEvent("Recycling");
 
             if (_impl->_settings.recycle == settings::ZoneSettings::RecycleMode::Manual) {
                 _impl->_zoneData->_persistent.reset();
@@ -357,5 +390,5 @@ void NapaZone::Recycle() {
 NapaZone::~NapaZone() {
     // _activeZones[this_zone_id] is expired by now
     Recycle();
-    _impl->_events.OnRecycled();
+    _impl->EmitEvent("Recycled");
 }

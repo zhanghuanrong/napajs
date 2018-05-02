@@ -6,6 +6,10 @@ import * as zone from './zone';
 import * as transport from '../transport';
 import * as v8 from '../v8';
 
+const debugLogger=require('debug');
+//const zoneLogger=debugLogger('napa:zone');
+const zoneEmitterLogger=debugLogger('napa:zone:emitter');
+
 interface FunctionSpec {
     module: string;
     function: string;
@@ -184,4 +188,54 @@ export class ZoneImpl implements zone.Zone {
             transportContext: transportContext
         };
     }
+
+
+    // All zone event will notify to nodezone first. So register listener
+    // in nodezone, and execute on the promise resolved.
+    public on(event: string, func:(...args: any[]) => void) : void {
+        let nodezone = (<any>(global)).napa.zone.node;
+        let emitterZoneName = this.id;
+        nodezone.execute((emitterZoneName: string, event: string) : Promise<any[]> => {
+            zoneEmitterLogger("++++++Adding event listener on zone",  emitterZoneName, " emitting event:", event);
+            return new Promise((resolve, reject) => {
+                    if (!(<any>(global)).__zone_events_listeners[emitterZoneName]) {
+                        (<any>(global)).__zone_events_listeners[emitterZoneName] = {};
+                    }
+                    let zoneEvents = (<any>(global)).__zone_events_listeners[emitterZoneName];
+                    if (!zoneEvents[event]) {
+                        zoneEvents[event] = [];
+                    }
+                    let listeners = zoneEvents[event];
+                    listeners.push([resolve, reject]);
+                });
+            }, [emitterZoneName, event])
+        .then((execResult: zone.Result) => {
+            zoneEmitterLogger(">>>>>>Listener got event:", event, " on zone:", emitterZoneName, " with result:", execResult.value);
+            func.apply(null, execResult.value); 
+        })
+        .catch((err: any) => {
+            console.error(">>>>>>Error listening on zone:", emitterZoneName, " event:", event, " with error:", err);
+        });
+    }
 }
+
+// Called by c++ code upon zone events from the emitterZone's worker, and be executed in node main thread.
+export function __emit_zone_event(emitterZoneName: string, event:string, ...args: any[]): number {
+    let nodezone = (<any>(global)).napa.zone.node;
+    zoneEmitterLogger("======Emitting event:", event, " from zone:",  emitterZoneName, " with args:", args);
+    if ((<any>(global)).__zone_events_listeners[emitterZoneName] && 
+        (<any>(global)).__zone_events_listeners[emitterZoneName][event]) {
+        let listeners = (<any>(global)).__zone_events_listeners[emitterZoneName][event];
+        while (listeners.length > 0) {
+            zoneEmitterLogger("======Found one listener on event:", event, " from zone:",  emitterZoneName, " calling");
+            let listener = listeners.shift();
+            let resolver = listener[0];
+            resolver(args);
+        }
+    }
+    return 0;
+}
+
+// [zoneName][eventName] as promis's (resolve, reject) array.
+let __zone_events_listeners = {};
+export {__zone_events_listeners};
