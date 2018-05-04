@@ -155,9 +155,7 @@ void Worker::Schedule(std::shared_ptr<Task> task) {
 
 void Worker::WorkerThreadFunc(const settings::ZoneSettings& settings) {
     // Create Isolate.
-    v8::Isolate::CreateParams params;
-    params.array_buffer_allocator = v8::ArrayBuffer::Allocator::NewDefaultAllocator();
-    v8::Isolate* isolate = v8::Isolate::New(params);
+    v8::Isolate* isolate = node::CreateIsolateWithTheSameSettingAsMainThread();
     NAPA_ASSERT(isolate, "Failed to create v8 isolate for worker.");
     _impl->isolate = isolate;
 
@@ -170,7 +168,7 @@ void Worker::WorkerThreadFunc(const settings::ZoneSettings& settings) {
         v8::Locker locker(isolate);
         v8::Isolate::Scope isolate_scope(isolate);
         v8::HandleScope handle_scope(isolate);
-        node::IsolateData* isolate_data = node::CreateIsolateData(isolate, &_impl->loop, multiIsolatePlatform);
+        node::IsolateData* isolate_data = node::CreateIsolateDataWithTheSameSettingAsMainThread(isolate, &_impl->loop, multiIsolatePlatform);
 
         // Napa releted setting.
         _impl->foregroundTaskRunner = multiIsolatePlatform->GetForegroundTaskRunner(isolate).get();
@@ -180,7 +178,7 @@ void Worker::WorkerThreadFunc(const settings::ZoneSettings& settings) {
         NAPA_DEBUG("Worker", "(id=%u) Setup completed.", _impl->id);
 
         // Create Context.
-        v8::Local<v8::Context> context = v8::Context::New(isolate);
+        v8::Local<v8::Context> context = node::CreateContextWithTheSameSettingAsMainThread(isolate);
         v8::Context::Scope context_scope(context);
 
         // Create node::Environment.
@@ -205,7 +203,7 @@ void Worker::WorkerThreadFunc(const settings::ZoneSettings& settings) {
             std::lock_guard<std::mutex> lock(environment_loading_mutext);
             const char allow_natives_syntax[] = "--allow_natives_syntax";
             v8::V8::SetFlagsFromString(allow_natives_syntax, sizeof(allow_natives_syntax) - 1);
-            node::LoadEnvironment(env);
+            node::LoadEnvironmentWithTheSameSettingAsMainThread(env);
         }
 
         // Run uv loop.
