@@ -25,13 +25,12 @@
 using namespace napa;
 using namespace napa::zone;
 
+static std::mutex environment_loading_mutext;
+
 static const std::string NAPA_WORKER_INIT_PATH = 
     utils::string::ReplaceAllCopy(
         filesystem::Path(dll::ThisLineLocation()).Parent().Parent().Normalize().String(), "\\", "\\\\"
     ) + "/lib/zone/napa-worker-init.js";
-// Forward declaration
-static v8::Isolate* CreateIsolate(const settings::ZoneSettings& settings);
-static void ConfigureIsolate(v8::Isolate* isolate, const settings::ZoneSettings& settings);
 
 struct Worker::Impl {
 
@@ -202,9 +201,12 @@ void Worker::WorkerThreadFunc(const settings::ZoneSettings& settings) {
         // node::LoadEnvironment need access to V8 intrinsics by flag '--allow_natives_syntax'.
         // If the flag haven't been specified when launching node.js,
         // it will be disabled again during node bootstrapping.
-        const char allow_natives_syntax[] = "--allow_natives_syntax";
-        v8::V8::SetFlagsFromString(allow_natives_syntax, sizeof(allow_natives_syntax) - 1);
-        node::LoadEnvironment(env);
+        {
+            std::lock_guard<std::mutex> lock(environment_loading_mutext);
+            const char allow_natives_syntax[] = "--allow_natives_syntax";
+            v8::V8::SetFlagsFromString(allow_natives_syntax, sizeof(allow_natives_syntax) - 1);
+            node::LoadEnvironment(env);
+        }
 
         // Run uv loop.
         {
