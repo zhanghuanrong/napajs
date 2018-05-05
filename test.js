@@ -28,3 +28,12 @@ napazone.execute((sharable) => {
 }, [napa.memory.crtAllocator]).then((r) => {
     console.log('...3...zone execute callback......', r.value, global.__zone_id, global.__worker_id);
 });
+
+napazone.on('Terminated', (exitCode) => {
+   console.log("XXXXXXXXXXXXXXXXX napa zone exited with:", exitCode);
+});
+napazone.recycle();
+
+setTimeout(() => {
+    console.log(".................................");
+}, 3000);

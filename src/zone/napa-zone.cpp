@@ -2,6 +2,7 @@
 // Licensed under the MIT license.
 
 #include "napa-zone.h"
+#include "node-zone.h"
 
 #include <platform/dll.h>
 #include <platform/filesystem.h>
@@ -19,6 +20,10 @@
 #include <unordered_set>
 
 #include <string.h>
+#include <sstream>
+#include <vector>
+#include <algorithm>
+#include <iostream>
 
 using namespace napa;
 using namespace napa::zone;
@@ -87,28 +92,56 @@ namespace {
         std::unique_ptr<Scheduler> _scheduler;
         std::shared_ptr<ZoneData> _zoneData;
 
-        void EmitEvent(const char* event...) {
-            auto isolate = v8::Isolate::GetCurrent();
-            auto context = isolate->GetCurrentContext();
-            v8::HandleScope scope(isolate);
+        void EmitEvent(const char* event, ...) {
 
             const char* emitterZoneName = _settings.id.c_str();
-            v8::Local<v8::String> funcName = v8::String::NewFromUtf8(
-                    isolate, "napa.impl.__emit_zone_event", v8::NewStringType::kNormal).ToLocalChecked();
-            v8::Local<v8::Value> funcHandle = context->Global()->Get(funcName);
-            v8::Local<v8::Function> func = v8::Local<v8::Function>::Cast(funcHandle);
+            std::cout << "XXXXXXXXXXXXXXXXXXXXXXXXXX zone:" << emitterZoneName << " emitting event:" << event << std::endl;
 
-            std::vector<v8::Local<v8::Value>> parameters;
-            parameters.emplace_back(v8::String::NewFromUtf8(isolate, emitterZoneName, v8::NewStringType::kNormal).ToLocalChecked());
-            parameters.emplace_back(v8::String::NewFromUtf8(isolate, event, v8::NewStringType::kNormal).ToLocalChecked());
-
+            auto nodezone = napa::zone::NodeZone::Get();
+            napa::FunctionSpec fspec;
+            fspec.function = NAPA_STRING_REF("__emit_zone_event");
+            
+            auto funcArgs = new std::vector<std::string>();
+            funcArgs->emplace_back(std::string{emitterZoneName});
+            funcArgs->emplace_back(std::string{event});
             va_list args;
             va_start(args, event);
             if (strcmp(event, "Terminated") == 0) {
                 int exit_code = va_arg(args, int);
-                parameters.emplace_back(v8::Integer::New(isolate, exit_code));
+                funcArgs->emplace_back(std::to_string(exit_code));
             }
             va_end(args);
+            
+            std::for_each(funcArgs->begin(), funcArgs->end(), [&fspec](const std::string& arg) {
+                fspec.arguments.emplace_back(NAPA_STRING_REF_WITH_SIZE(arg.c_str(), arg.size()));
+            });
+            fspec.transportContext.reset(nullptr);
+
+            nodezone->Execute(fspec, [funcArgs](napa::Result r){
+                std::cout << "  ++XX++XX: result:" << r.returnValue << std::endl;
+                std::cout << "  ++XX++XX: error:" << r.errorMessage << std::endl;
+                delete funcArgs;
+            });
+
+            // auto isolate = v8::Isolate::GetCurrent();
+            // auto context = isolate->GetCurrentContext();
+            // v8::HandleScope scope(isolate);
+
+            // v8::Local<v8::String> funcName = v8::String::NewFromUtf8(
+            //         isolate, "__emit_zone_event", v8::NewStringType::kNormal).ToLocalChecked();
+            // v8::Local<v8::Value> funcHandle = context->Global()->Get(funcName);
+            // v8::Local<v8::Function> func = v8::Local<v8::Function>::Cast(funcHandle);
+
+            // std::vector<v8::Local<v8::Value>> parameters;
+            // parameters.emplace_back(v8::String::NewFromUtf8(isolate, emitterZoneName, v8::NewStringType::kNormal).ToLocalChecked());
+            // parameters.emplace_back(v8::String::NewFromUtf8(isolate, event, v8::NewStringType::kNormal).ToLocalChecked());
+
+            // if (strcmp(event, "Terminated") == 0) {
+            //     int exit_code = va_arg(args, int);
+            //     parameters.emplace_back(v8::Integer::New(isolate, exit_code));
+            // }
+            // va_end(args);
+            // func->Call(context->Global(), parameters.size(), parameters.data());
         }
 
         ~NapaZoneImpl() {
@@ -272,7 +305,9 @@ NapaZone::NapaZone(const settings::ZoneSettings& settings) :
             // destruct the scheduler, which also destruct the workers.
             impl->_scheduler.reset();
 
-            impl->EmitEvent("Terminated", 0);
+            // TODO: correcting exit_code logic.
+            int zone_exit_code = 0;
+            impl->EmitEvent("Terminated", zone_exit_code);
             impl->_zoneData->_recyclePlaceHolder.reset();
             _allZones.erase(impl->_zoneData);
         });
