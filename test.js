@@ -30,15 +30,16 @@ nodezone.execute((sharable, sharedArrayBuffer) => {
 });
 
 napazone.on('Recycling', () => {
-    console.log("XXXXXXXXXXXXXXXXX napa zone is recycling....");
+    console.log("------ZONE-EVENTEMITTER: napazone is recycling....");
  });
  
 
 napazone.on('Terminated', (exitCode) => {
-   console.log("XXXXXXXXXXXXXXXXX napa zone exited with:", exitCode);
+   console.log("------ZONE-EVENTEMITTER: napazone exited with:", exitCode);
 });
+
 napazone.recycle();
 
 setTimeout(() => {
     console.log(".................................");
-}, 3000);
+}, 2000);

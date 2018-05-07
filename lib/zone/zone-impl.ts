@@ -6,6 +6,10 @@ import * as zone from './zone';
 import * as transport from '../transport';
 import * as v8 from '../v8';
 
+const debugLogger=require('debug');
+//const zoneLogger=require('debug')('napa:zone');
+const zoneEmitterLogger=debugLogger('napa:zone:emitter');
+
 interface FunctionSpec {
     module: string;
     function: string;
@@ -190,8 +194,9 @@ export class ZoneImpl implements zone.Zone {
     // in nodezone, and execute on the promise resolved.
     public on(event: string, func:(...args: any[]) => void) : void {
         let nodezone = (<any>(global)).napa.zone.node;
+        let emitterZoneName = this.id;
         nodezone.execute((emitterZoneName: string, event: string) : Promise<any[]> => {
-            //console.log("++++++Adding event listener on zone",  emitterZoneName, " emitting event:", event);
+            zoneEmitterLogger("++++++Adding event listener on zone",  emitterZoneName, " emitting event:", event);
             return new Promise((resolve, reject) => {
                     if (!(<any>(global)).__zone_events_listeners[emitterZoneName]) {
                         (<any>(global)).__zone_events_listeners[emitterZoneName] = {};
@@ -203,13 +208,13 @@ export class ZoneImpl implements zone.Zone {
                     let listeners = zoneEvents[event];
                     listeners.push([resolve, reject]);
                 });
-            }, [this.id, event])
+            }, [emitterZoneName, event])
         .then((execResult: zone.Result) => {
-            //console.log(">>>>>>Listener got event:", event, " with result:", execResult.value);
+            zoneEmitterLogger(">>>>>>Listener got event:", event, " on zone:", emitterZoneName, " with result:", execResult.value);
             func.apply(null, execResult.value); 
         })
         .catch((err: any) => {
-            console.error(">>>>>>Error listening on event:", event, " with error:", err);
+            console.error(">>>>>>Error listening on zone:", emitterZoneName, " event:", event, " with error:", err);
         });
     }
 }
@@ -217,12 +222,12 @@ export class ZoneImpl implements zone.Zone {
 // Called by c++ code upon zone events from the emitterZone's worker, and be executed in node main thread.
 export function __emit_zone_event(emitterZoneName: string, event:string, ...args: any[]): number {
     let nodezone = (<any>(global)).napa.zone.node;
-    //console.log("======Emitting event:", event, " from zone:",  emitterZoneName, " with args:", args);
+    zoneEmitterLogger("======Emitting event:", event, " from zone:",  emitterZoneName, " with args:", args);
     if ((<any>(global)).__zone_events_listeners[emitterZoneName] && 
         (<any>(global)).__zone_events_listeners[emitterZoneName][event]) {
         let listeners = (<any>(global)).__zone_events_listeners[emitterZoneName][event];
         while (listeners.length > 0) {
-            //console.log("======Found one listener on event:", event, " from zone:",  emitterZoneName, " calling");
+            zoneEmitterLogger("======Found one listener on event:", event, " from zone:",  emitterZoneName, " calling");
             let listener = listeners.shift();
             let resolver = listener[0];
             resolver(args);
