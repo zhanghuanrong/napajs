@@ -1,6 +1,7 @@
 const napa = require('.');
 
-let napazone = napa.zone.create("myzone", {workers:1});
+const napaZoneName = "myzone";
+let napazone = napa.zone.create(napaZoneName, {workers:1});
 
 let nodezone = napa.zone.node;
 let sab = new SharedArrayBuffer(4);
@@ -30,12 +31,12 @@ nodezone.execute((sharable, sharedArrayBuffer) => {
 });
 
 napazone.on('Recycling', () => {
-    console.log("------ZONE-EVENTEMITTER: napazone is recycling....");
+    console.log(`------ZONE-EVENTEMITTER: zone:${napaZoneName} is recycling....`);
  });
  
 
 napazone.on('Terminated', (exitCode) => {
-   console.log("------ZONE-EVENTEMITTER: napazone exited with:", exitCode);
+   console.log(`------ZONE-EVENTEMITTER: zone:${napaZoneName} exited with:${exitCode}`);
 });
 
 napazone.recycle();
