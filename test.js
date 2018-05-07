@@ -29,6 +29,11 @@ nodezone.execute((sharable, sharedArrayBuffer) => {
     console.log('...3...zone execute callback......', r.value, global.__zone_id, global.__worker_id);
 });
 
+napazone.on('Recycling', () => {
+    console.log("XXXXXXXXXXXXXXXXX napa zone is recycling....");
+ });
+ 
+
 napazone.on('Terminated', (exitCode) => {
    console.log("XXXXXXXXXXXXXXXXX napa zone exited with:", exitCode);
 });
