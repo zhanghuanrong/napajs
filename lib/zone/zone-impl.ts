@@ -191,7 +191,7 @@ export class ZoneImpl implements zone.Zone {
     public on(event: string, func:(...args: any[]) => void) : void {
         let nodezone = (<any>(global)).napa.zone.node;
         nodezone.execute((emitterZoneName: string, event: string) : Promise<any[]> => {
-            console.log("++++++++adding event listener on zone",  emitterZoneName, " emitting event:", event);
+            //console.log("++++++Adding event listener on zone",  emitterZoneName, " emitting event:", event);
             return new Promise((resolve, reject) => {
                     if (!(<any>(global)).__zone_events_listeners[emitterZoneName]) {
                         (<any>(global)).__zone_events_listeners[emitterZoneName] = {};
@@ -205,30 +205,32 @@ export class ZoneImpl implements zone.Zone {
                 });
             }, [this.id, event])
         .then((execResult: zone.Result) => {
-            console.log(">>>>>>>> Listener got event:", event, " with result:", execResult.value);
+            //console.log(">>>>>>Listener got event:", event, " with result:", execResult.value);
             func.apply(null, execResult.value); 
+        })
+        .catch((err: any) => {
+            console.error(">>>>>>Error listening on event:", event, " with error:", err);
         });
     }
 }
 
-// called by c++ code upon zone events, in the emitterZone's worker.
-export function __emit_zone_event(emitterZoneName: string, event:string, ...args: any[]): void {
+// Called by c++ code upon zone events from the emitterZone's worker, and be executed in node main thread.
+export function __emit_zone_event(emitterZoneName: string, event:string, ...args: any[]): number {
     let nodezone = (<any>(global)).napa.zone.node;
-    console.log("========Emitting event:", event, " from zone:",  emitterZoneName, " with args:", args);
-    nodezone.execute((emitterZoneName: string, event:string, argsArray: any[]) => {
-        if ((<any>(global)).__zone_events_listeners[emitterZoneName] && 
-            (<any>(global)).__zone_events_listeners[emitterZoneName][event]) {
-            let listeners = (<any>(global)).__zone_events_listeners[emitterZoneName][event];
-            while (listeners.length > 0) {
-                console.log("========Found one listener on event:", event, " from zone:",  emitterZoneName, " calling");
-                let listener = listeners.shift();
-                let resolve = listener[0];
-                resolve(argsArray);
-            }
+    //console.log("======Emitting event:", event, " from zone:",  emitterZoneName, " with args:", args);
+    if ((<any>(global)).__zone_events_listeners[emitterZoneName] && 
+        (<any>(global)).__zone_events_listeners[emitterZoneName][event]) {
+        let listeners = (<any>(global)).__zone_events_listeners[emitterZoneName][event];
+        while (listeners.length > 0) {
+            //console.log("======Found one listener on event:", event, " from zone:",  emitterZoneName, " calling");
+            let listener = listeners.shift();
+            let resolver = listener[0];
+            resolver(args);
         }
-    }, [emitterZoneName, event, args]);
+    }
+    return 0;
 }
 
-// [zoneName][eventName] as promis array. This only works in node main.
+// [zoneName][eventName] as promis's (resolve, reject) array.
 let __zone_events_listeners = {};
 export {__zone_events_listeners};

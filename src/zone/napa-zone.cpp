@@ -92,56 +92,41 @@ namespace {
         std::unique_ptr<Scheduler> _scheduler;
         std::shared_ptr<ZoneData> _zoneData;
 
+        // run emitter in node's main thread with parameters
         void EmitEvent(const char* event, ...) {
-
             const char* emitterZoneName = _settings.id.c_str();
-            std::cout << "XXXXXXXXXXXXXXXXXXXXXXXXXX zone:" << emitterZoneName << " emitting event:" << event << std::endl;
+            NAPA_DEBUG("Zone", "ZoneEventEmitter--zone:%s is emitting event:%s", emitterZoneName, event);
 
             auto nodezone = napa::zone::NodeZone::Get();
             napa::FunctionSpec fspec;
-            fspec.function = NAPA_STRING_REF("__emit_zone_event");
-            
-            auto funcArgs = new std::vector<std::string>();
-            funcArgs->emplace_back(std::string{emitterZoneName});
-            funcArgs->emplace_back(std::string{event});
+            fspec.function = NAPA_STRING_REF("eval");
+
+            // Better escape should be used in future if needed.
+            std::ostringstream ss;
+            ss << "\"__emit_zone_event(\'" << emitterZoneName << "\', \'" << event << "\'";
+
             va_list args;
             va_start(args, event);
             if (strcmp(event, "Terminated") == 0) {
-                int exit_code = va_arg(args, int);
-                funcArgs->emplace_back(std::to_string(exit_code));
+                // TODO: more reasonable way to get zone exit_code
+                int exit_code = 0;
+                ss << ", " << exit_code;
             }
             va_end(args);
-            
-            std::for_each(funcArgs->begin(), funcArgs->end(), [&fspec](const std::string& arg) {
-                fspec.arguments.emplace_back(NAPA_STRING_REF_WITH_SIZE(arg.c_str(), arg.size()));
-            });
+            ss << ");\"";
+
+            auto evalScript = new std::string(ss.str());
+            NAPA_DEBUG("Zone", "ZoneEventEmitter--code to execute in node main:%s", evalScript->c_str());
+            fspec.arguments.emplace_back(NAPA_STRING_REF_WITH_SIZE(evalScript->c_str(), evalScript->size()));
             fspec.transportContext.reset(nullptr);
 
-            nodezone->Execute(fspec, [funcArgs](napa::Result r){
-                std::cout << "  ++XX++XX: result:" << r.returnValue << std::endl;
-                std::cout << "  ++XX++XX: error:" << r.errorMessage << std::endl;
-                delete funcArgs;
+            nodezone->Execute(fspec, [evalScript](napa::Result r) {
+                //Nothing will require calling zone worker's existence.
+                if (r.errorMessage.size() > 0) {
+                    LOG_ERROR("Zone", "Error when emit event: %s", r.errorMessage.c_str());
+                }
+                delete evalScript;
             });
-
-            // auto isolate = v8::Isolate::GetCurrent();
-            // auto context = isolate->GetCurrentContext();
-            // v8::HandleScope scope(isolate);
-
-            // v8::Local<v8::String> funcName = v8::String::NewFromUtf8(
-            //         isolate, "__emit_zone_event", v8::NewStringType::kNormal).ToLocalChecked();
-            // v8::Local<v8::Value> funcHandle = context->Global()->Get(funcName);
-            // v8::Local<v8::Function> func = v8::Local<v8::Function>::Cast(funcHandle);
-
-            // std::vector<v8::Local<v8::Value>> parameters;
-            // parameters.emplace_back(v8::String::NewFromUtf8(isolate, emitterZoneName, v8::NewStringType::kNormal).ToLocalChecked());
-            // parameters.emplace_back(v8::String::NewFromUtf8(isolate, event, v8::NewStringType::kNormal).ToLocalChecked());
-
-            // if (strcmp(event, "Terminated") == 0) {
-            //     int exit_code = va_arg(args, int);
-            //     parameters.emplace_back(v8::Integer::New(isolate, exit_code));
-            // }
-            // va_end(args);
-            // func->Call(context->Global(), parameters.size(), parameters.data());
         }
 
         ~NapaZoneImpl() {
