@@ -7,7 +7,7 @@ import * as transport from '../transport';
 import * as v8 from '../v8';
 
 const debugLogger=require('debug');
-//const zoneLogger=require('debug')('napa:zone');
+//const zoneLogger=debugLogger('napa:zone');
 const zoneEmitterLogger=debugLogger('napa:zone:emitter');
 
 interface FunctionSpec {
