@@ -7,7 +7,6 @@ import * as transport from '../transport';
 import * as v8 from '../v8';
 
 const debugLogger=require('debug');
-//const zoneLogger=debugLogger('napa:zone');
 const zoneEmitterLogger=debugLogger('napa:zone:emitter');
 
 interface FunctionSpec {
@@ -189,9 +188,9 @@ export class ZoneImpl implements zone.Zone {
         };
     }
 
-
-    // All zone event will notify to nodezone first. So register listener
-    // in nodezone, and execute on the promise resolved.
+    // Implementation notes: All zone event will notify to nodezone first. This function
+    // register listener in nodezone, its callback will be executed in caller's isolation 
+    // after its listener's event is emitted.
     public on(event: string, func:(...args: any[]) => void) : void {
         let nodezone = (<any>(global)).napa.zone.node;
         let emitterZoneName = this.id;
@@ -219,7 +218,8 @@ export class ZoneImpl implements zone.Zone {
     }
 }
 
-// Called by c++ code upon zone events from the emitterZone's worker, and be executed in node main thread.
+// This function will be be executed in node main thread. When a zone has event to emit, a task will be
+// post to nodezone. The posted task in general just call this function.
 export function __emit_zone_event(emitterZoneName: string, event:string, ...args: any[]): number {
     let nodezone = (<any>(global)).napa.zone.node;
     zoneEmitterLogger("======Emitting event:", event, " from zone:",  emitterZoneName, " with args:", args);
@@ -236,6 +236,6 @@ export function __emit_zone_event(emitterZoneName: string, event:string, ...args
     return 0;
 }
 
-// [zoneName][eventName] as promis's (resolve, reject) array.
+// [zoneName][eventName] as promise's [resolve, reject] array.
 let __zone_events_listeners = {};
 export {__zone_events_listeners};

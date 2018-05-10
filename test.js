@@ -30,17 +30,17 @@ napazone.execute((sharable) => {
     console.log('...3...zone execute callback......', r.value, global.__zone_id, global.__worker_id);
 });
 
-napazone.on('Recycling', () => {
+napazone.on('recycling', () => {
     console.log(`------ZONE-EVENTEMITTER: zone:${napaZoneName} is recycling....`);
  });
  
 
-napazone.on('Terminated', (exitCode) => {
+napazone.on('terminated', (exitCode) => {
    console.log(`------ZONE-EVENTEMITTER: zone:${napaZoneName} exited with:${exitCode}`);
 });
 
 napazone.recycle();
 
 setTimeout(() => {
-    console.log(".................................");
+    console.log("<<<<<<<<<<<<<<<<<< Finished last guarding timeout() in node main.");
 }, 2000);

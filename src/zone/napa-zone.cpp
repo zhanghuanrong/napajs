@@ -15,15 +15,12 @@
 
 #include <napa/log.h>
 
+#include <string.h>
+
 #include <future>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
-
-#include <string.h>
-#include <sstream>
-#include <vector>
-#include <algorithm>
-#include <iostream>
 
 using namespace napa;
 using namespace napa::zone;
@@ -104,10 +101,9 @@ namespace {
             // Better escape should be used in future if needed.
             std::ostringstream ss;
             ss << "\"__emit_zone_event(\'" << emitterZoneName << "\', \'" << event << "\'";
-
             va_list args;
             va_start(args, event);
-            if (strcmp(event, "Terminated") == 0) {
+            if (strcmp(event, "terminated") == 0) {
                 // TODO: more reasonable way to get zone exit_code
                 int exit_code = 0;
                 ss << ", " << exit_code;
@@ -292,7 +288,7 @@ NapaZone::NapaZone(const settings::ZoneSettings& settings) :
 
             // TODO: correcting exit_code logic.
             int zone_exit_code = 0;
-            impl->EmitEvent("Terminated", zone_exit_code);
+            impl->EmitEvent("terminated", zone_exit_code);
             impl->_zoneData->_recyclePlaceHolder.reset();
             _allZones.erase(impl->_zoneData);
         });
@@ -378,7 +374,7 @@ void NapaZone::Recycle() {
             Broadcast(exitSpec, [](Result){});
 
             _recycling = true;
-            _impl->EmitEvent("Recycling");
+            _impl->EmitEvent("recycling");
 
             if (_impl->_settings.recycle == settings::ZoneSettings::RecycleMode::Manual) {
                 _impl->_zoneData->_persistent.reset();
@@ -390,5 +386,5 @@ void NapaZone::Recycle() {
 NapaZone::~NapaZone() {
     // _activeZones[this_zone_id] is expired by now
     Recycle();
-    _impl->EmitEvent("Recycled");
+    _impl->EmitEvent("recycled");
 }
