@@ -89,8 +89,26 @@ namespace {
         std::unique_ptr<Scheduler> _scheduler;
         std::shared_ptr<ZoneData> _zoneData;
 
+        void EmitRecycling() { 
+            EmitEvent("recycling", nullptr); 
+        }
+
+        void EmitRecycled() { 
+            EmitEvent("recycled", nullptr); 
+        }
+
+        void EmitTerminated(int exit_code) { 
+            EmitEvent("terminated", [exit_code] () { return std::to_string(exit_code); } );
+        }
+
+        ~NapaZoneImpl() {
+            NAPA_DEBUG("Zone", "Destructor NapaZoneImpl");
+        }
+
+    private:
         // run emitter in node's main thread with parameters
-        void EmitEvent(const char* event, ...) {
+        void EmitEvent(const char* event, 
+                       std::function<std::string (void)> stringfyParameters) {
             const char* emitterZoneName = _settings.id.c_str();
             NAPA_DEBUG("Zone", "ZoneEventEmitter--zone:%s is emitting event:%s", emitterZoneName, event);
 
@@ -98,17 +116,11 @@ namespace {
             napa::FunctionSpec fspec;
             fspec.function = NAPA_STRING_REF("eval");
 
-            // Better escape should be used in future if needed.
             std::ostringstream ss;
             ss << "\"__emit_zone_event(\'" << emitterZoneName << "\', \'" << event << "\'";
-            va_list args;
-            va_start(args, event);
-            if (strcmp(event, "terminated") == 0) {
-                // TODO: more reasonable way to get zone exit_code
-                int exit_code = 0;
-                ss << ", " << exit_code;
+            if (stringfyParameters) {
+                ss << ", " << stringfyParameters();
             }
-            va_end(args);
             ss << ");\"";
 
             auto evalScript = new std::string(ss.str());
@@ -117,16 +129,11 @@ namespace {
             fspec.transportContext.reset(nullptr);
 
             nodezone->Execute(fspec, [evalScript](napa::Result r) {
-                //Nothing will require calling zone worker's existence.
                 if (r.errorMessage.size() > 0) {
                     LOG_ERROR("Zone", "Error when emit event: %s", r.errorMessage.c_str());
                 }
                 delete evalScript;
             });
-        }
-
-        ~NapaZoneImpl() {
-            NAPA_DEBUG("Zone", "Destructor NapaZoneImpl");
         }
     };
 
@@ -288,7 +295,7 @@ NapaZone::NapaZone(const settings::ZoneSettings& settings) :
 
             // TODO: correcting exit_code logic.
             int zone_exit_code = 0;
-            impl->EmitEvent("terminated", zone_exit_code);
+            impl->EmitTerminated(zone_exit_code);
             impl->_zoneData->_recyclePlaceHolder.reset();
             _allZones.erase(impl->_zoneData);
         });
@@ -374,7 +381,7 @@ void NapaZone::Recycle() {
             Broadcast(exitSpec, [](Result){});
 
             _recycling = true;
-            _impl->EmitEvent("recycling");
+            _impl->EmitRecycling();
 
             if (_impl->_settings.recycle == settings::ZoneSettings::RecycleMode::Manual) {
                 _impl->_zoneData->_persistent.reset();
@@ -386,5 +393,5 @@ void NapaZone::Recycle() {
 NapaZone::~NapaZone() {
     // _activeZones[this_zone_id] is expired by now
     Recycle();
-    _impl->EmitEvent("recycled");
+    _impl->EmitRecycled();
 }
