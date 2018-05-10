@@ -90,15 +90,15 @@ namespace {
         std::shared_ptr<ZoneData> _zoneData;
 
         void EmitRecycling() { 
-            EmitEvent("recycling", nullptr); 
+            EmitEvent("recycling", std::string("")); 
         }
 
         void EmitRecycled() { 
-            EmitEvent("recycled", nullptr); 
+            EmitEvent("recycled",  std::string("")); 
         }
 
         void EmitTerminated(int exit_code) { 
-            EmitEvent("terminated", [exit_code] () { return std::to_string(exit_code); } );
+            EmitEvent("terminated", std::to_string(exit_code));
         }
 
         ~NapaZoneImpl() {
@@ -107,8 +107,7 @@ namespace {
 
     private:
         // run emitter in node's main thread with parameters
-        void EmitEvent(const char* event, 
-                       std::function<std::string (void)> stringfyParameters) {
+        void EmitEvent(const char* event, const std::string& parametersInString) {
             const char* emitterZoneName = _settings.id.c_str();
             NAPA_DEBUG("Zone", "ZoneEventEmitter--zone:%s is emitting event:%s", emitterZoneName, event);
 
@@ -118,21 +117,20 @@ namespace {
 
             std::ostringstream ss;
             ss << "\"__emit_zone_event(\'" << emitterZoneName << "\', \'" << event << "\'";
-            if (stringfyParameters) {
-                ss << ", " << stringfyParameters();
+            if (!parametersInString.empty()) {
+                ss << ", " << parametersInString;
             }
             ss << ");\"";
 
-            auto evalScript = new std::string(ss.str());
-            NAPA_DEBUG("Zone", "ZoneEventEmitter--code to execute in node main:%s", evalScript->c_str());
-            fspec.arguments.emplace_back(NAPA_STRING_REF_WITH_SIZE(evalScript->c_str(), evalScript->size()));
+            std::string evalScript = ss.str();
+            NAPA_DEBUG("Zone", "ZoneEventEmitter--code to execute in node main:%s", evalScript.c_str());
+            fspec.arguments.emplace_back(NAPA_STRING_REF_WITH_SIZE(evalScript.c_str(), evalScript.size()));
             fspec.transportContext.reset(nullptr);
 
-            nodezone->Execute(fspec, [evalScript](napa::Result r) {
-                if (r.errorMessage.size() > 0) {
-                    LOG_ERROR("Zone", "Error when emit event: %s", r.errorMessage.c_str());
+            nodezone->Execute(fspec, [](napa::Result r) {
+                if (r.code != NAPA_RESULT_SUCCESS) {
+                    LOG_ERROR("Zone", "Error when emit event: %d -- %s", static_cast<int>(r.code), r.errorMessage.c_str());
                 }
-                delete evalScript;
             });
         }
     };
