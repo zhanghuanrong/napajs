@@ -40,7 +40,7 @@ let set_args_command =
 testZone.broadcast(set_args_command);
 
 //Setting process.exit in worker(s)
-let command_process_exit='process.exit=function(code){ if (code || code === 0) process.exitCode = code; process.exitCode = process.exitCode || 0; let nodezone = napa.zone.node; nodezone.broadcast(`console.log("----Receiving worker exit(${process.exitCode})"); process.exit(${process.exitCode});`); };';
+let command_process_exit='process.reallyExit=function(code){ let nodezone = napa.zone.node; nodezone.broadcast(`console.log("----Receiving worker exit(${code})"); process.exit(${code});`); };';
 testZone.broadcast(command_process_exit);
 
 testZone.broadcast(`require("${originalScriptPath}"); 0;`);
