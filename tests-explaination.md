@@ -1,15 +1,17 @@
 # Failed node test when running in napa worker
 ## How the list is generated
-	- Utilize tools\test.py, which run more than 2000 js test scripts, and a test fail when it exit code is not 0 or timeout.
-	- slightly modified script that when an env virable for NODE_WORKER_TEST_WRAPPER exists, run each target js test script in a napa worker (by run js specified by NODE_WORKER_TEST_WRAPPER in main) rather than in the node main as pure node test.
-	- slightly modify common.js under test/ dir so that no global variable check when env variable NODE_WORKER_TEST_WRAPPER exist.
+- Utilize tools\test.py, which run more than 2000 js test scripts, and a test fail when it exit code is not 0 or timeout.
+- slightly modified script that when an env virable for NODE_WORKER_TEST_WRAPPER exists, run each target js test script in a napa worker (by run js specified by NODE_WORKER_TEST_WRAPPER in main) rather than in the node main as pure node test.
+- slightly modify common.js under test/ dir so that no global variable check when env variable NODE_WORKER_TEST_WRAPPER exist.
+
 ## The meaning of the list
-	- The list gives all failed js test scripts name together with its dir name. 
-	- The failed test could caused by different reasons, and are under investigating. For example: many of async_hooks\* test failed becaused we many already start some async object before the test, and the root triggering async uid is not 1 but 0. Some fail may also not caused by the feature named the test script, but some dependecies used in the script.
-	- For tests not list here, they just pass currently. No guarrantee they are 100% working in multi-thread environment.
-	- Notes: The list will be updated upon deeper investigations.
+- The list gives all failed js test scripts name together with its dir name. 
+- The failed test could caused by different reasons, and are under investigating. For example: many of async_hooks\* test failed becaused we many already start some async object before the test, and the root triggering async uid is not 1 but 0. Some fail may also not caused by the feature named the test script, but some dependecies used in the script.
+- For tests not list here, they just pass currently. No guarrantee they are 100% working in multi-thread environment.
+- Notes: The list will be updated upon deeper investigations.
+
 ## Black list
-```html
+```
 async-hooks/test-crypto-pbkdf2
 async-hooks/test-crypto-randomBytes
 async-hooks/test-embedder.api.async-resource
