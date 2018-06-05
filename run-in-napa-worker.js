@@ -27,6 +27,7 @@ let workerCount = Number(process.env.NODE_WORKER_TEST_WORKER_COUNT || 1);
 debug("Using NODE_WORKER_TEST_WORKER_COUNT=", workerCount);
 let testZone = napa.zone.create("testZone", {workers : workerCount});
 testZone.on("terminated", (exit_code) => {
+    console.log(`Got test zone terminated with ${exit_code}`)
     process.exit(exit_code);
 });
 
@@ -39,11 +40,13 @@ let set_args_command =
   "0;";
 testZone.broadcast(set_args_command);
 
-//Setting process.exit in worker(s)
+//Setting process.reallyExit() in worker(s)
 let command_process_exit='process.reallyExit=function(code){ let nodezone = napa.zone.node; nodezone.broadcast(`console.log("----Receiving worker exit(${code})"); process.exit(${code});`); };';
 testZone.broadcast(command_process_exit);
 
-testZone.broadcast(`require("${originalScriptPath}"); 0;`);
+testZone.broadcast(`require("${originalScriptPath}");`);
+
+console.log('Let test zone feel free to exit()...')
 testZone.recycle();
 
 0;

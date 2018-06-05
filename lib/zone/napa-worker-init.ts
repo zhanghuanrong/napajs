@@ -9,7 +9,6 @@ const __worker_id = process.argv[3];
 
 console.log(`------zone(${__zone_id}):worker(${__worker_id}) is initializing------`);
 require('../../');
-console.log(`------zone(${__zone_id}):worker(${__worker_id}) is initialized------`);
 
 var aliveInterval = 30000;
 (<any>global).__recycle = (function () {
@@ -17,6 +16,7 @@ var aliveInterval = 30000;
         console.log(`------zone(${__zone_id}):worker(${__worker_id}) keep alive interval at ${new Date().toISOString()}`);
     }, aliveInterval);
 
+    console.log(`------zone(${__zone_id}):worker(${__worker_id}) is initialized------`);
     return function () {
         clearInterval(handle);
         console.log(`------zone(${__zone_id}):worker(${__worker_id}) is terminating------`);
